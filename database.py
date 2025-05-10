@@ -42,7 +42,7 @@ CREATE_INDEX_COMMAND = "CREATE INDEX IF NOT EXISTS idx_is_command ON messages (i
 
 INSERT_MESSAGE = """
 INSERT INTO messages (
-    id, author_id, author_name, channel_id, channel_name, 
+    id, author_id, author_name, channel_id, channel_name,
     guild_id, guild_name, content, created_at, is_bot, is_command, command_type
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
@@ -56,11 +56,11 @@ def init_database() -> None:
         if not os.path.exists(DB_DIRECTORY):
             os.makedirs(DB_DIRECTORY)
             logger.info(f"Created database directory: {DB_DIRECTORY}")
-        
+
         # Connect to the database and create tables
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        
+
         # Create tables and indexes
         cursor.execute(CREATE_MESSAGES_TABLE)
         cursor.execute(CREATE_INDEX_AUTHOR)
@@ -68,10 +68,10 @@ def init_database() -> None:
         cursor.execute(CREATE_INDEX_GUILD)
         cursor.execute(CREATE_INDEX_CREATED)
         cursor.execute(CREATE_INDEX_COMMAND)
-        
+
         conn.commit()
         conn.close()
-        
+
         logger.info(f"Database initialized successfully at {DB_FILE}")
     except Exception as e:
         logger.error(f"Error initializing database: {str(e)}", exc_info=True)
@@ -80,7 +80,7 @@ def init_database() -> None:
 def get_connection() -> sqlite3.Connection:
     """
     Get a connection to the SQLite database.
-    
+
     Returns:
         sqlite3.Connection: A connection to the database.
     """
@@ -108,7 +108,7 @@ def store_message(
 ) -> bool:
     """
     Store a message in the database.
-    
+
     Args:
         message_id (str): The Discord message ID
         author_id (str): The Discord user ID of the message author
@@ -122,14 +122,14 @@ def store_message(
         is_bot (bool): Whether the message was sent by a bot
         is_command (bool): Whether the message is a command
         command_type (Optional[str]): The type of command (if applicable)
-        
+
     Returns:
         bool: True if the message was stored successfully, False otherwise
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute(
             INSERT_MESSAGE,
             (
@@ -147,10 +147,10 @@ def store_message(
                 command_type
             )
         )
-        
+
         conn.commit()
         conn.close()
-        
+
         logger.debug(f"Message {message_id} stored in database")
         return True
     except sqlite3.IntegrityError:
@@ -164,17 +164,17 @@ def store_message(
 def get_message_count() -> int:
     """
     Get the total number of messages in the database.
-    
+
     Returns:
         int: The number of messages
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute("SELECT COUNT(*) FROM messages")
         count = cursor.fetchone()[0]
-        
+
         conn.close()
         return count
     except Exception as e:
@@ -184,22 +184,70 @@ def get_message_count() -> int:
 def get_user_message_count(user_id: str) -> int:
     """
     Get the number of messages from a specific user.
-    
+
     Args:
         user_id (str): The Discord user ID
-        
+
     Returns:
         int: The number of messages from the user
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute("SELECT COUNT(*) FROM messages WHERE author_id = ?", (user_id,))
         count = cursor.fetchone()[0]
-        
+
         conn.close()
         return count
     except Exception as e:
         logger.error(f"Error getting message count for user {user_id}: {str(e)}", exc_info=True)
         return -1
+
+def get_channel_messages_for_day(channel_id: str, date: datetime) -> List[Dict[str, Any]]:
+    """
+    Get all messages from a specific channel for a specific day.
+
+    Args:
+        channel_id (str): The Discord channel ID
+        date (datetime): The date to get messages for
+
+    Returns:
+        List[Dict[str, Any]]: A list of messages as dictionaries
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Calculate start and end of the day
+        start_date = datetime(date.year, date.month, date.day, 0, 0, 0).isoformat()
+        end_date = datetime(date.year, date.month, date.day, 23, 59, 59, 999999).isoformat()
+
+        # Query messages for the channel within the date range
+        cursor.execute(
+            """
+            SELECT author_name, content, created_at, is_bot, is_command
+            FROM messages
+            WHERE channel_id = ? AND created_at BETWEEN ? AND ?
+            ORDER BY created_at ASC
+            """,
+            (channel_id, start_date, end_date)
+        )
+
+        # Convert rows to dictionaries
+        messages = []
+        for row in cursor.fetchall():
+            messages.append({
+                'author_name': row['author_name'],
+                'content': row['content'],
+                'created_at': datetime.fromisoformat(row['created_at']),
+                'is_bot': bool(row['is_bot']),
+                'is_command': bool(row['is_command'])
+            })
+
+        conn.close()
+        logger.info(f"Retrieved {len(messages)} messages from channel {channel_id} for {date.strftime('%Y-%m-%d')}")
+        return messages
+    except Exception as e:
+        logger.error(f"Error getting messages for channel {channel_id} on {date.strftime('%Y-%m-%d')}: {str(e)}", exc_info=True)
+        return []

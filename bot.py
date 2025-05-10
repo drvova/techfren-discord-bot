@@ -98,6 +98,95 @@ async def call_llm_api(query):
         logger.error(f"Error calling LLM API: {str(e)}", exc_info=True)
         return "Sorry, I encountered an error while processing your request. Please try again later."
 
+async def call_llm_for_summary(messages, channel_name, date):
+    """
+    Call the LLM API to summarize a list of messages from a channel
+
+    Args:
+        messages (list): List of message dictionaries to summarize
+        channel_name (str): Name of the channel
+        date (datetime): Date of the messages
+
+    Returns:
+        str: The LLM's summary or an error message
+    """
+    try:
+        # Filter out bot messages and commands
+        filtered_messages = [
+            msg for msg in messages
+            if not msg['is_bot'] and not msg['is_command']
+        ]
+
+        if not filtered_messages:
+            return f"No user messages found in #{channel_name} for {date.strftime('%Y-%m-%d')}."
+
+        # Prepare the messages for summarization
+        formatted_messages = []
+        for msg in filtered_messages:
+            time_str = msg['created_at'].strftime('%H:%M:%S')
+            formatted_messages.append(f"[{time_str}] {msg['author_name']}: {msg['content']}")
+
+        # Join the messages with newlines
+        messages_text = "\n".join(formatted_messages)
+
+        # Create the prompt for the LLM
+        prompt = f"""Please summarize the following conversation from the #{channel_name} channel on {date.strftime('%Y-%m-%d')}:
+
+{messages_text}
+
+Provide a concise summary of the main topics discussed, key points made, and any conclusions reached.
+Format the summary in a clear, readable way with bullet points for main topics.
+"""
+
+        logger.info(f"Calling LLM API for channel summary: #{channel_name} on {date.strftime('%Y-%m-%d')}")
+
+        # Import config here to ensure it's loaded
+        import config
+
+        # Check if OpenRouter API key exists
+        if not hasattr(config, 'openrouter') or not config.openrouter:
+            logger.error("OpenRouter API key not found in config.py or is empty")
+            return "Error: OpenRouter API key is missing. Please contact the bot administrator."
+
+        # Initialize the OpenAI client with OpenRouter base URL
+        openai_client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=config.openrouter
+        )
+
+        # Make the API request with a higher token limit for summaries
+        completion = openai_client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "https://techfren.net",
+                "X-Title": "TechFren Discord Bot",
+            },
+            model="x-ai/grok-3-mini-beta",  # You can change this to any model supported by OpenRouter
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that summarizes Discord conversations. Provide clear, concise summaries that capture the main points of discussions."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            max_tokens=1500,  # Increased token limit for summaries
+            temperature=0.5   # Lower temperature for more focused summaries
+        )
+
+        # Extract the response
+        summary = completion.choices[0].message.content
+        logger.info(f"LLM API summary received successfully: {summary[:50]}{'...' if len(summary) > 50 else ''}")
+
+        # Add a header to the summary
+        final_summary = f"**Summary of #{channel_name} on {date.strftime('%Y-%m-%d')}**\n\n{summary}"
+        return final_summary
+
+    except Exception as e:
+        logger.error(f"Error calling LLM API for summary: {str(e)}", exc_info=True)
+        return "Sorry, I encountered an error while generating the summary. Please try again later."
+
 def check_rate_limit(user_id):
     """
     Check if a user has exceeded the rate limit
@@ -203,6 +292,9 @@ async def on_message(message):
         elif message.content.startswith('/bot '):
             is_command = True
             command_type = "/bot"
+        elif message.content.startswith('/sum-day'):
+            is_command = True
+            command_type = "/sum-day"
 
         # Store in database
         guild_id = str(message.guild.id) if message.guild else None
@@ -279,6 +371,61 @@ async def on_message(message):
             except Exception as e:
                 logger.error(f"Error processing /bot command: {str(e)}", exc_info=True)
                 await message.channel.send("Sorry, an error occurred while processing your request. Please try again later.")
+                try:
+                    await processing_msg.delete()
+                except:
+                    pass
+
+        # Handle /sum-day command for channel summarization
+        elif message.content.startswith('/sum-day'):
+            logger.info(f"Executing command: /sum-day - Requested by {message.author}")
+
+            # Check rate limiting
+            is_limited, wait_time, reason = check_rate_limit(str(message.author.id))
+            if is_limited:
+                if reason == "cooldown":
+                    await message.channel.send(f"Please wait {wait_time:.1f} seconds before making another request.")
+                else:  # max_per_minute
+                    await message.channel.send(f"You've reached the maximum number of requests per minute. Please try again in {wait_time:.1f} seconds.")
+                logger.info(f"Rate limited user {message.author} ({reason}): wait time {wait_time:.1f}s")
+                return
+
+            # Let the user know we're processing their request
+            processing_msg = await message.channel.send("Generating channel summary, please wait... This may take a moment.")
+
+            try:
+                # Get today's date
+                today = datetime.now()
+
+                # Get the channel ID and name
+                channel_id = str(message.channel.id)
+                channel_name = message.channel.name
+
+                # Import database module
+                import database
+
+                # Get messages for the channel for today
+                messages = database.get_channel_messages_for_day(channel_id, today)
+
+                if not messages:
+                    await processing_msg.delete()
+                    await message.channel.send(f"No messages found in this channel for today ({today.strftime('%Y-%m-%d')}).")
+                    logger.info(f"No messages found for /sum-day command in channel {channel_name}")
+                    return
+
+                # Call the LLM API for summarization
+                summary = await call_llm_for_summary(messages, channel_name, today)
+
+                # Send the summary
+                await message.channel.send(summary)
+
+                # Delete the processing message
+                await processing_msg.delete()
+
+                logger.info(f"Command executed successfully: /sum-day - Summary length: {len(summary)}")
+            except Exception as e:
+                logger.error(f"Error processing /sum-day command: {str(e)}", exc_info=True)
+                await message.channel.send("Sorry, an error occurred while generating the summary. Please try again later.")
                 try:
                     await processing_msg.delete()
                 except:
