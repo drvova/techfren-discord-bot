@@ -28,6 +28,10 @@ ENV/
 # Configuration files with sensitive data
 config.py
 
+# Log files
+logs/
+*.log
+
 # IDE files
 .idea/
 .vscode/
