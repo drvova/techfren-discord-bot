@@ -8,6 +8,7 @@ A simple Discord bot built with discord.py.
 - Processes `/bot <query>` commands and responds with AI-generated answers using OpenRouter API
 - Rate limiting to prevent abuse (10 seconds between requests, max 6 requests per minute)
 - Only responds in the #bot-talk channel
+- Stores all messages in a SQLite database for logging and analysis
 
 ## Setup
 
@@ -47,6 +48,26 @@ To use the message content intent, you need to enable it in the Discord Develope
 5. Enable the "Message Content Intent"
 6. Save your changes
 7. Uncomment the message_content intent in the bot.py file
+
+## Database
+
+The bot stores all messages in a SQLite database located in the `data/` directory. This allows for:
+
+- Message history tracking
+- User activity analysis
+- Command usage statistics
+
+### Database Utilities
+
+You can use the `db_utils.py` script to interact with the database:
+
+```bash
+# List recent messages
+python db_utils.py list -n 20
+
+# Show message statistics
+python db_utils.py stats
+```
 
 ## License
 

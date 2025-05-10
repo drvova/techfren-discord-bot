@@ -32,6 +32,12 @@ config.py
 logs/
 *.log
 
+# Database files
+data/
+*.db
+*.sqlite
+*.sqlite3
+
 # IDE files
 .idea/
 .vscode/

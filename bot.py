@@ -4,9 +4,11 @@ import discord
 import logging
 import os
 import time
+import sqlite3
 from datetime import datetime
 from collections import defaultdict
 from openai import OpenAI
+import database
 
 # Set up logging
 log_directory = "logs"
@@ -138,6 +140,14 @@ async def on_ready():
     logger.info(f'Bot ID: {client.user.id}')
     logger.info(f'Connected to {len(client.guilds)} guilds')
 
+    # Initialize the database
+    try:
+        database.init_database()
+        message_count = database.get_message_count()
+        logger.info(f'Database initialized successfully. Current message count: {message_count}')
+    except Exception as e:
+        logger.error(f'Failed to initialize database: {str(e)}', exc_info=True)
+
     # Log details about each connected guild
     for guild in client.guilds:
         logger.info(f'Connected to guild: {guild.name} (ID: {guild.id}) - {len(guild.members)} members')
@@ -180,6 +190,43 @@ async def on_message(message):
     guild_name = message.guild.name if message.guild else "DM"
     channel_name = message.channel.name if hasattr(message.channel, 'name') else "Direct Message"
     logger.info(f"Message received - Guild: {guild_name} | Channel: {channel_name} | Author: {message.author} | Content: {message.content[:50]}{'...' if len(message.content) > 50 else ''}")
+
+    # Store message in database
+    try:
+        # Determine if this is a command and what type
+        is_command = False
+        command_type = None
+
+        if message.content.startswith('$hello'):
+            is_command = True
+            command_type = "$hello"
+        elif message.content.startswith('/bot '):
+            is_command = True
+            command_type = "/bot"
+
+        # Store in database
+        guild_id = str(message.guild.id) if message.guild else None
+        channel_id = str(message.channel.id)
+
+        success = database.store_message(
+            message_id=str(message.id),
+            author_id=str(message.author.id),
+            author_name=str(message.author),
+            channel_id=channel_id,
+            channel_name=channel_name,
+            content=message.content,
+            created_at=message.created_at,
+            guild_id=guild_id,
+            guild_name=guild_name,
+            is_bot=message.author.bot,
+            is_command=is_command,
+            command_type=command_type
+        )
+
+        if not success:
+            logger.warning(f"Failed to store message {message.id} in database")
+    except Exception as e:
+        logger.error(f"Error storing message in database: {str(e)}", exc_info=True)
 
     # Only respond in the #bot-talk channel
     if hasattr(message.channel, 'name') and message.channel.name != 'bot-talk':
