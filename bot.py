@@ -300,6 +300,11 @@ async def on_message(message):
         guild_id = str(message.guild.id) if message.guild else None
         channel_id = str(message.channel.id)
 
+        # Ensure database module is accessible
+        if not database:
+            logger.error("Database module not properly imported or initialized")
+            return
+
         success = database.store_message(
             message_id=str(message.id),
             author_id=str(message.author.id),
@@ -401,8 +406,12 @@ async def on_message(message):
                 channel_id = str(message.channel.id)
                 channel_name = message.channel.name
 
-                # Import database module
-                import database
+                # Ensure database module is accessible
+                if not database:
+                    logger.error("Database module not properly imported or initialized")
+                    await processing_msg.delete()
+                    await message.channel.send("Sorry, an error occurred while accessing the database. Please try again later.")
+                    return
 
                 # Get messages for the channel for today
                 messages = database.get_channel_messages_for_day(channel_id, today)

@@ -73,6 +73,8 @@ The bot stores all messages in a SQLite database located in the `data/` director
 - Command usage statistics
 - Channel summarization functionality
 
+The database is initialized when the bot starts up and is used throughout the application to store and retrieve messages.
+
 ### Database Utilities
 
 You can use the `db_utils.py` script to interact with the database:
@@ -84,6 +86,22 @@ python db_utils.py list -n 20
 # Show message statistics
 python db_utils.py stats
 ```
+
+### Troubleshooting
+
+If you encounter database-related errors:
+
+1. Make sure the `data/` directory exists and is writable
+2. Check that the database is properly initialized in the `on_ready` event
+3. Avoid importing the database module multiple times in different scopes
+4. Check the logs for detailed error messages
+
+## Changelog
+
+### 2025-05-10
+- Fixed an `UnboundLocalError` in the `/sum-day` command that was causing database access issues
+- Improved error handling for database operations
+- Added additional database troubleshooting information to the README
 
 ## License
 
