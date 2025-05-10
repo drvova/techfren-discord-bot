@@ -5,6 +5,9 @@ A simple Discord bot built with discord.py.
 ## Features
 
 - Responds to `$hello` command with a greeting
+- Processes `/bot <query>` commands and responds with AI-generated answers using OpenRouter API
+- Rate limiting to prevent abuse (10 seconds between requests, max 6 requests per minute)
+- Only responds in the #bot-talk channel
 
 ## Setup
 
@@ -22,10 +25,12 @@ A simple Discord bot built with discord.py.
    ```
    uv pip install -r requirements.txt
    ```
-5. Create a `config.py` file with your Discord bot token:
+5. Create a `config.py` file with your Discord bot token and OpenRouter API key:
    ```python
    token = "YOUR_DISCORD_BOT_TOKEN"
+   openrouter = "YOUR_OPENROUTER_API_KEY"
    ```
+   You can get an OpenRouter API key by signing up at [OpenRouter.ai](https://openrouter.ai/)
 6. Run the bot:
    ```
    python bot.py

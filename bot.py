@@ -3,7 +3,10 @@
 import discord
 import logging
 import os
+import time
 from datetime import datetime
+from collections import defaultdict
+from openai import OpenAI
 
 # Set up logging
 log_directory = "logs"
@@ -29,6 +32,105 @@ intents = discord.Intents.default()
 intents.message_content = True  # This is required to read message content in guild channels
 
 client = discord.Client(intents=intents)
+
+# Rate limiting configuration
+RATE_LIMIT_SECONDS = 10  # Time between allowed requests per user
+MAX_REQUESTS_PER_MINUTE = 6  # Maximum requests per user per minute
+user_last_request = {}  # Track last request time per user
+user_request_count = defaultdict(list)  # Track request timestamps for per-minute limiting
+
+async def call_llm_api(query):
+    """
+    Call the LLM API with the user's query and return the response
+
+    Args:
+        query (str): The user's query text
+
+    Returns:
+        str: The LLM's response or an error message
+    """
+    try:
+        logger.info(f"Calling LLM API with query: {query[:50]}{'...' if len(query) > 50 else ''}")
+
+        # Import config here to ensure it's loaded
+        import config
+
+        # Check if OpenRouter API key exists
+        if not hasattr(config, 'openrouter') or not config.openrouter:
+            logger.error("OpenRouter API key not found in config.py or is empty")
+            return "Error: OpenRouter API key is missing. Please contact the bot administrator."
+
+        # Initialize the OpenAI client with OpenRouter base URL
+        openai_client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=config.openrouter
+        )
+
+        # Make the API request
+        completion = openai_client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "https://techfren.net",  # Optional site URL
+                "X-Title": "TechFren Discord Bot",  # Optional site title
+            },
+            model="x-ai/grok-3-mini-beta",  # You can change this to any model supported by OpenRouter
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an assistant bot to the techfren community discord server. A community of AI coding, Open source and technology enthusiasts"
+                },
+                {
+                    "role": "user",
+                    "content": query
+                }
+            ],
+            max_tokens=1000,
+            temperature=0.7
+        )
+
+        # Extract the response
+        message = completion.choices[0].message.content
+        logger.info(f"LLM API response received successfully: {message[:50]}{'...' if len(message) > 50 else ''}")
+        return message
+
+    except Exception as e:
+        logger.error(f"Error calling LLM API: {str(e)}", exc_info=True)
+        return "Sorry, I encountered an error while processing your request. Please try again later."
+
+def check_rate_limit(user_id):
+    """
+    Check if a user has exceeded the rate limit
+
+    Args:
+        user_id (str): The Discord user ID
+
+    Returns:
+        tuple: (is_rate_limited, seconds_to_wait, reason)
+    """
+    current_time = time.time()
+
+    # Check cooldown between requests
+    if user_id in user_last_request:
+        time_since_last = current_time - user_last_request[user_id]
+        if time_since_last < RATE_LIMIT_SECONDS:
+            return True, RATE_LIMIT_SECONDS - time_since_last, "cooldown"
+
+    # Check requests per minute
+    minute_ago = current_time - 60
+    recent_requests = [t for t in user_request_count[user_id] if t > minute_ago]
+
+    if len(recent_requests) >= MAX_REQUESTS_PER_MINUTE:
+        oldest = min(recent_requests)
+        time_until_reset = oldest + 60 - current_time
+        return True, time_until_reset, "max_per_minute"
+
+    # Update tracking
+    user_last_request[user_id] = current_time
+    user_request_count[user_id].append(current_time)
+
+    # Clean up old timestamps
+    user_request_count[user_id] = recent_requests + [current_time]
+
+    return False, 0, None
 
 @client.event
 async def on_ready():
@@ -86,10 +188,54 @@ async def on_message(message):
 
     # Process commands
     try:
+        # Handle $hello command
         if message.content.startswith('$hello'):
             logger.info(f"Executing command: $hello - Requested by {message.author}")
             await message.channel.send('Hello!')
             logger.info(f"Command executed successfully: $hello")
+
+        # Handle /bot command for LLM queries
+        elif message.content.startswith('/bot '):
+            # Extract the query (everything after "/bot ")
+            query = message.content[5:].strip()
+
+            if not query:
+                await message.channel.send("Please provide a query after `/bot`.")
+                return
+
+            logger.info(f"Executing command: /bot - Requested by {message.author}")
+
+            # Check rate limiting
+            is_limited, wait_time, reason = check_rate_limit(str(message.author.id))
+            if is_limited:
+                if reason == "cooldown":
+                    await message.channel.send(f"Please wait {wait_time:.1f} seconds before making another request.")
+                else:  # max_per_minute
+                    await message.channel.send(f"You've reached the maximum number of requests per minute. Please try again in {wait_time:.1f} seconds.")
+                logger.info(f"Rate limited user {message.author} ({reason}): wait time {wait_time:.1f}s")
+                return
+
+            # Let the user know we're processing their request
+            processing_msg = await message.channel.send("Processing your request, please wait...")
+
+            try:
+                # Call the LLM API
+                response = await call_llm_api(query)
+
+                # Send the response
+                await message.channel.send(response)
+
+                # Delete the processing message
+                await processing_msg.delete()
+
+                logger.info(f"Command executed successfully: /bot - Response length: {len(response)}")
+            except Exception as e:
+                logger.error(f"Error processing /bot command: {str(e)}", exc_info=True)
+                await message.channel.send("Sorry, an error occurred while processing your request. Please try again later.")
+                try:
+                    await processing_msg.delete()
+                except:
+                    pass
     except Exception as e:
         logger.error(f"Error processing message: {e}", exc_info=True)
         # Optionally notify about the error in the channel
