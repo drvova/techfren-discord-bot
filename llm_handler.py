@@ -50,7 +50,7 @@ async def call_llm_api(query):
                     "content": query
                 }
             ],
-            max_tokens=1000,
+            max_tokens=4000,  # Increased for better responses, within reasonable limits
             temperature=0.7
         )
 
@@ -141,6 +141,13 @@ async def call_llm_for_summary(messages, channel_name, date, hours=24):
         # Join the messages with newlines
         messages_text = "\n".join(formatted_messages_text)
 
+        # Truncate input if it's too long to avoid token limits
+        # Rough estimate: 1 token ≈ 4 characters, leaving room for prompt and response
+        max_input_length = 60000  # ~15k tokens for input, allowing room for system prompt and output
+        if len(messages_text) > max_input_length:
+            messages_text = messages_text[:max_input_length] + "\n\n[Messages truncated due to length...]"
+            logger.info(f"Truncated conversation input from {len('\n'.join(formatted_messages_text))} to {len(messages_text)} characters")
+
         # Create the prompt for the LLM
         time_period = "24 hours" if hours == 24 else f"{hours} hours" if hours != 1 else "1 hour"
         prompt = f"""Please summarize the following conversation from the #{channel_name} channel for the past {time_period}:
@@ -186,7 +193,7 @@ At the end, include a section with the top 3 most interesting or notable one-lin
                     "content": prompt
                 }
             ],
-            max_tokens=1500,  # Increased token limit for summaries
+            max_tokens=8000,  # Increased token limit for comprehensive summaries (Grok-3-mini context: 131k)
             temperature=0.5   # Lower temperature for more focused summaries
         )
 
@@ -278,7 +285,7 @@ Format your response exactly as follows:
                     "content": prompt
                 }
             ],
-            max_tokens=1500,  # Increased token limit for summaries
+            max_tokens=6000,  # Increased token limit for content summarization (Grok-3-mini context: 131k)
             temperature=0.3   # Lower temperature for more focused and consistent summaries
         )
 
