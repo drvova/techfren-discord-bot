@@ -123,7 +123,8 @@ async def call_llm_for_summary(messages, channel_name, date, hours=24):
 
             # If there's scraped content, add it to the message
             if scraped_url and scraped_summary:
-                message_text += f"\n\n[Link Content from {scraped_url}]:\n{scraped_summary}"
+                link_content = f"\n\n[Link Content from {scraped_url}]:\n{scraped_summary}"
+                message_text += link_content
 
                 # If there are key points, add them too
                 if scraped_key_points:
@@ -132,7 +133,8 @@ async def call_llm_for_summary(messages, channel_name, date, hours=24):
                         if key_points and isinstance(key_points, list):
                             message_text += "\n\nKey points:"
                             for point in key_points:
-                                message_text += f"\n- {point}"
+                                bullet_point = f"\n- {point}"
+                                message_text += bullet_point
                     except json.JSONDecodeError:
                         logger.warning(f"Failed to parse key points JSON: {scraped_key_points}")
 
