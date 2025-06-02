@@ -3,11 +3,11 @@ import database
 from logging_config import logger
 from rate_limiter import check_rate_limit
 from llm_handler import call_llm_api
-from message_utils import split_long_message
+from message_utils import split_long_message, get_message_context
 import re
 from typing import Optional
 
-async def handle_bot_command(message: discord.Message, client_user: discord.ClientUser) -> None:
+async def handle_bot_command(message: discord.Message, client_user: discord.ClientUser, bot_client: discord.Client = None) -> None:
     """Handles the mention command with thread-based replies."""
     bot_mention = f'<@{client_user.id}>'
     bot_mention_alt = f'<@!{client_user.id}>'
@@ -48,7 +48,16 @@ async def handle_bot_command(message: discord.Message, client_user: discord.Clie
             processing_msg = await thread_sender.send("Processing your request, please wait...")
 
             try:
-                response = await call_llm_api(query)
+                # Get message context (referenced messages and linked messages)
+                message_context = None
+                if bot_client:
+                    try:
+                        message_context = await get_message_context(message, bot_client)
+                        logger.debug(f"Retrieved message context: referenced={message_context['referenced_message'] is not None}, linked_count={len(message_context['linked_messages'])}")
+                    except Exception as e:
+                        logger.warning(f"Failed to get message context: {e}")
+
+                response = await call_llm_api(query, message_context)
                 message_parts = await split_long_message(response)
 
                 # Send all response parts in the thread
@@ -75,12 +84,12 @@ async def handle_bot_command(message: discord.Message, client_user: discord.Clie
         else:
             # Fallback: if thread creation failed, send response in main channel
             logger.warning("Thread creation failed for bot command, falling back to channel response")
-            await _handle_bot_command_fallback(message, client_user, query)
+            await _handle_bot_command_fallback(message, client_user, query, bot_client)
 
     except Exception as e:
         logger.error(f"Error in thread-based bot command handling: {str(e)}", exc_info=True)
         # Fallback to original behavior
-        await _handle_bot_command_fallback(message, client_user, query)
+        await _handle_bot_command_fallback(message, client_user, query, bot_client)
 
 
 async def _send_error_response_thread(message: discord.Message, client_user: discord.ClientUser, error_msg: str) -> None:
@@ -111,11 +120,20 @@ async def _send_error_response_thread(message: discord.Message, client_user: dis
         await store_bot_response_db(bot_response, client_user, message.guild, message.channel, error_msg)
 
 
-async def _handle_bot_command_fallback(message: discord.Message, client_user: discord.ClientUser, query: str) -> None:
+async def _handle_bot_command_fallback(message: discord.Message, client_user: discord.ClientUser, query: str, bot_client: discord.Client = None) -> None:
     """Fallback handler for bot commands when thread creation fails."""
     processing_msg = await message.channel.send("Processing your request, please wait...")
     try:
-        response = await call_llm_api(query)
+        # Get message context (referenced messages and linked messages)
+        message_context = None
+        if bot_client:
+            try:
+                message_context = await get_message_context(message, bot_client)
+                logger.debug(f"Retrieved message context in fallback: referenced={message_context['referenced_message'] is not None}, linked_count={len(message_context['linked_messages'])}")
+            except Exception as e:
+                logger.warning(f"Failed to get message context in fallback: {e}")
+
+        response = await call_llm_api(query, message_context)
         message_parts = await split_long_message(response)
 
         for part in message_parts:

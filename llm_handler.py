@@ -5,12 +5,13 @@ import json
 from typing import Optional, Dict, List, Any
 from message_utils import generate_discord_message_link
 
-async def call_llm_api(query):
+async def call_llm_api(query, message_context=None):
     """
     Call the LLM API with the user's query and return the response
 
     Args:
         query (str): The user's query text
+        message_context (dict, optional): Context containing referenced and linked messages
 
     Returns:
         str: The LLM's response or an error message
@@ -32,6 +33,38 @@ async def call_llm_api(query):
         # Get the model from config or use default
         model = getattr(config, 'llm_model', "x-ai/grok-3-mini-beta")
 
+        # Prepare the user content with message context if available
+        user_content = query
+        if message_context:
+            context_parts = []
+
+            # Add referenced message (reply) context
+            if message_context.get('referenced_message'):
+                ref_msg = message_context['referenced_message']
+                ref_author = getattr(ref_msg, 'author', None)
+                ref_author_name = str(ref_author) if ref_author else "Unknown"
+                ref_content = getattr(ref_msg, 'content', '')
+                ref_timestamp = getattr(ref_msg, 'created_at', None)
+                ref_time_str = ref_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if ref_timestamp else "Unknown time"
+
+                context_parts.append(f"**Referenced Message (Reply):**\nAuthor: {ref_author_name}\nTime: {ref_time_str}\nContent: {ref_content}")
+
+            # Add linked messages context
+            if message_context.get('linked_messages'):
+                for i, linked_msg in enumerate(message_context['linked_messages']):
+                    linked_author = getattr(linked_msg, 'author', None)
+                    linked_author_name = str(linked_author) if linked_author else "Unknown"
+                    linked_content = getattr(linked_msg, 'content', '')
+                    linked_timestamp = getattr(linked_msg, 'created_at', None)
+                    linked_time_str = linked_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if linked_timestamp else "Unknown time"
+
+                    context_parts.append(f"**Linked Message {i+1}:**\nAuthor: {linked_author_name}\nTime: {linked_time_str}\nContent: {linked_content}")
+
+            if context_parts:
+                context_text = "\n\n".join(context_parts)
+                user_content = f"{context_text}\n\n**User's Question/Request:**\n{query}"
+                logger.debug(f"Added message context to LLM prompt: {len(context_parts)} context message(s)")
+
         # Make the API request
         completion = openai_client.chat.completions.create(
             extra_headers={
@@ -43,11 +76,12 @@ async def call_llm_api(query):
                 {
                     "role": "system",
                     "content": "You are an assistant bot to the techfren community discord server. A community of AI coding, Open source and technology enthusiasts. \
-                    Users can use /sum-day to summarize messages from today, or /sum-hr <hours> to summarize messages from the past N hours (e.g., /sum-hr 6 for past 6 hours)."
+                    Users can use /sum-day to summarize messages from today, or /sum-hr <hours> to summarize messages from the past N hours (e.g., /sum-hr 6 for past 6 hours). \
+                    When users reference or link to other messages, you can see the content of those messages and should refer to them in your response when relevant."
                 },
                 {
                     "role": "user",
-                    "content": query
+                    "content": user_content
                 }
             ],
             max_tokens=4000,  # Increased for better responses, within reasonable limits
