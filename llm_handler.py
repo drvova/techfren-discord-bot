@@ -145,8 +145,9 @@ async def call_llm_for_summary(messages, channel_name, date, hours=24):
         # Rough estimate: 1 token ≈ 4 characters, leaving room for prompt and response
         max_input_length = 60000  # ~15k tokens for input, allowing room for system prompt and output
         if len(messages_text) > max_input_length:
+            original_length = len('\n'.join(formatted_messages_text))
             messages_text = messages_text[:max_input_length] + "\n\n[Messages truncated due to length...]"
-            logger.info(f"Truncated conversation input from {len('\n'.join(formatted_messages_text))} to {len(messages_text)} characters")
+            logger.info(f"Truncated conversation input from {original_length} to {len(messages_text)} characters")
 
         # Create the prompt for the LLM
         time_period = "24 hours" if hours == 24 else f"{hours} hours" if hours != 1 else "1 hour"
