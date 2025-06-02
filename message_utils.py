@@ -22,7 +22,8 @@ async def split_long_message(message, max_length=1950):
 
     Args:
         message (str): The message to split
-        max_length (int): Maximum length of each part (default: 1950 to leave room for part indicators)
+        max_length (int): Maximum length of each part 
+                         (default: 1950 to leave room for part indicators)
 
     Returns:
         list: List of message parts
