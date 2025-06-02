@@ -2,7 +2,7 @@ from openai import OpenAI
 from logging_config import logger
 import config # Assuming config.py is in the same directory or accessible
 import json
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, Any
 from message_utils import generate_discord_message_link
 
 async def call_llm_api(query, message_context=None):
