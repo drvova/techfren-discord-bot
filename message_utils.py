@@ -1,3 +1,8 @@
+import discord
+import re
+from typing import Optional, Dict, Any
+import logging
+
 def generate_discord_message_link(guild_id: str, channel_id: str, message_id: str) -> str:
     """
     Generate a Discord message link from guild ID, channel ID, and message ID.
@@ -89,3 +94,142 @@ async def split_long_message(message, max_length=1950):
         return [message]
 
     return parts
+
+async def fetch_referenced_message(message: discord.Message) -> Optional[discord.Message]:
+    """
+    Fetch the message that this message is replying to.
+    
+    Args:
+        message (discord.Message): The message to check for references
+        
+    Returns:
+        Optional[discord.Message]: The referenced message if found, None otherwise
+    """
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Check if message has a reference (reply)
+        if message.reference and message.reference.message_id:
+            # Try to get the referenced message from cache first
+            if message.reference.cached_message:
+                return message.reference.cached_message
+            
+            # If not in cache, fetch it from the channel
+            channel = message.channel
+            if message.reference.channel_id != channel.id:
+                # Message references a different channel
+                guild = message.guild
+                if guild:
+                    channel = guild.get_channel(message.reference.channel_id)
+                    if not channel:
+                        logger.warning(f"Could not find channel {message.reference.channel_id} for referenced message")
+                        return None
+                else:
+                    logger.warning("Cannot fetch cross-channel reference without guild context")
+                    return None
+            
+            return await channel.fetch_message(message.reference.message_id)
+    
+    except (discord.HTTPException, discord.NotFound) as e:
+        logger.warning(f"Failed to fetch referenced message: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error fetching referenced message: {e}")
+    
+    return None
+
+async def fetch_message_from_link(link: str, bot: discord.Client) -> Optional[discord.Message]:
+    """
+    Fetch a Discord message from a Discord message link.
+    
+    Args:
+        link (str): Discord message link (e.g., https://discord.com/channels/guild_id/channel_id/message_id)
+        bot (discord.Client): The Discord bot client
+        
+    Returns:
+        Optional[discord.Message]: The message if found, None otherwise
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Parse Discord message link
+    pattern = r'https://discord\.com/channels/(@me|\d+)/(\d+)/(\d+)'
+    match = re.match(pattern, link)
+    
+    if not match:
+        logger.warning(f"Invalid Discord message link format: {link}")
+        return None
+    
+    guild_id_str, channel_id_str, message_id_str = match.groups()
+    
+    try:
+        channel_id = int(channel_id_str)
+        message_id = int(message_id_str)
+        
+        # Get the channel
+        if guild_id_str == "@me":
+            # DM channel
+            channel = bot.get_channel(channel_id)
+        else:
+            guild_id = int(guild_id_str)
+            guild = bot.get_guild(guild_id)
+            if not guild:
+                logger.warning(f"Bot is not in guild {guild_id}")
+                return None
+            channel = guild.get_channel(channel_id)
+        
+        if not channel:
+            logger.warning(f"Could not find channel {channel_id}")
+            return None
+        
+        # Fetch the message
+        return await channel.fetch_message(message_id)
+    
+    except (ValueError, discord.HTTPException, discord.NotFound) as e:
+        logger.warning(f"Failed to fetch message from link {link}: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error fetching message from link {link}: {e}")
+    
+    return None
+
+def extract_message_links(text: str) -> list[str]:
+    """
+    Extract Discord message links from text.
+    
+    Args:
+        text (str): Text to search for Discord message links
+        
+    Returns:
+        list[str]: List of Discord message links found
+    """
+    pattern = r'https://discord\.com/channels/(?:@me|\d+)/\d+/\d+'
+    return re.findall(pattern, text)
+
+async def get_message_context(message: discord.Message, bot: discord.Client) -> Dict[str, Any]:
+    """
+    Get context for a message including any referenced messages and linked messages.
+    
+    Args:
+        message (discord.Message): The message to get context for
+        bot (discord.Client): The Discord bot client
+        
+    Returns:
+        Dict[str, Any]: Dictionary containing message context
+    """
+    context = {
+        'original_message': message,
+        'referenced_message': None,
+        'linked_messages': []
+    }
+    
+    # Get referenced message (reply)
+    referenced_msg = await fetch_referenced_message(message)
+    if referenced_msg:
+        context['referenced_message'] = referenced_msg
+    
+    # Get messages from links in the message content
+    message_links = extract_message_links(message.content)
+    for link in message_links:
+        linked_msg = await fetch_message_from_link(link, bot)
+        if linked_msg:
+            context['linked_messages'].append(linked_msg)
+    
+    return context
