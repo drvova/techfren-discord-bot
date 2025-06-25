@@ -220,6 +220,34 @@ class TestBotCommands(unittest.TestCase):
         # Check if the summary function was called (thread creation is tested elsewhere)
         self.mock_call_llm_for_summary.assert_called_once()
 
+    def test_mention_command_in_middle_of_message(self):
+        """Test mention command works when @botname is in the middle of message"""
+        # Create mock message with mention in middle
+        channel = MagicMock()
+        channel.name = "general"
+        channel.id = "general_channel_id"
+        channel.send = AsyncMock()
+
+        # Mock bot user for mention
+        bot_user = MagicMock()
+        bot_user.id = 123456789
+
+        message = MockMessage(
+            content=f"Hey everyone, <@{bot_user.id}> can you help with this question?",
+            channel=channel
+        )
+
+        # Mock the bot.user in the bot module
+        import bot
+        bot.bot.user = bot_user
+
+        # Process the message
+        import asyncio
+        asyncio.run(bot.on_message(message))
+
+        # Check if the LLM API was called with the correct query (mention removed)
+        self.mock_call_llm_api.assert_called_once_with("Hey everyone,  can you help with this question?")
+
 def main():
     """Run all tests"""
     logger.info("Starting command tests...")
