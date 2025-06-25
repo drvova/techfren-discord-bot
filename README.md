@@ -4,7 +4,7 @@ A simple Discord bot built with discord.py.
 
 ## Features
 
-- Processes queries via mentions (`@botname <query>`) and responds with AI-generated answers using OpenRouter API
+- Processes queries via mentions (`@botname <query>`) anywhere in messages and responds with AI-generated answers using OpenRouter API
 - Summarizes channel conversations with `/sum-day` command to get a summary of the day's messages
 - Summarizes channel conversations with `/sum-hr <hours>` command to get a summary of the past N hours
 - Automatically generates daily summaries for all active channels at a scheduled time
@@ -16,7 +16,7 @@ A simple Discord bot built with discord.py.
   - Uses Firecrawl for all other URLs
   - Summarizes content and stores it in the database
 - Rate limiting to prevent abuse (10 seconds between requests, max 6 requests per minute)
-- Mention-based queries (e.g., `@botname <query>`) allow you to interact with the bot in any channel, with responses posted in threads attached to your original message
+- Mention-based queries (e.g., `@botname <query>`) allow you to interact with the bot in any channel, with responses posted in threads attached to your original message. Mentions can appear anywhere in the message (beginning, middle, or end)
 - `/sum-day` command works in any channel
 - Stores all messages in a SQLite database for logging and analysis
 
@@ -97,7 +97,7 @@ To use the message content intent, you need to enable it in the Discord Develope
 
 ### Basic Commands
 
-- `@botname <query>`: Sends your query to an AI model via OpenRouter and returns the response. This command works in any channel and creates a thread attached to your message where the bot's response is posted.
+- `@botname <query>`: Sends your query to an AI model via OpenRouter and returns the response. This command works in any channel and creates a thread attached to your message where the bot's response is posted. The mention can appear anywhere in your message (e.g., "Hey everyone, @botname can you help with this?").
 
 ### Channel Summarization
 
@@ -222,6 +222,13 @@ If you encounter database-related errors:
 4. Check the logs for detailed error messages
 
 ## Changelog
+
+### 2025-06-25
+- **Enhanced Mention Detection**: Bot now responds to mentions anywhere in messages, not just at the beginning
+  - **Flexible Positioning**: Mentions can appear at the start, middle, or end of messages (e.g., "Hey everyone, @botname can you help?")
+  - **Backward Compatible**: Existing mention patterns continue to work as before
+  - **Improved User Experience**: More natural conversation flow when mentioning the bot in context
+  - **Added Test Coverage**: New test case to verify mention detection in middle of messages
 
 ### 2025-01-27
 - **Thread-based replies for mention commands**: Bot responses to `@botname <query>` commands are now posted in threads attached to the user's original message
