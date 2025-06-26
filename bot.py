@@ -126,6 +126,83 @@ async def process_url(message_id: str, url: str):
     except Exception as e:
         logger.error(f"Error processing URL {url} from message {message_id}: {str(e)}", exc_info=True)
 
+async def handle_links_dump_channel(message: discord.Message) -> bool:
+    """
+    Handle messages in the links dump channel.
+    Delete non-link messages with a warning that auto-deletes after 1 minute.
+    
+    Args:
+        message: The Discord message to check
+        
+    Returns:
+        bool: True if message was handled (deleted), False if message should remain
+    """
+    try:
+        # Import config here to avoid circular imports
+        import config
+        
+        # Check if links dump channel is configured and this is that channel
+        if not hasattr(config, 'links_dump_channel_id') or not config.links_dump_channel_id:
+            return False
+            
+        if str(message.channel.id) != config.links_dump_channel_id:
+            return False
+            
+        # Don't handle bot messages or commands
+        if message.author.bot:
+            return False
+            
+        # Check for URLs in the message content using the same regex as process_url
+        url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?(?:\?[^\s]*)?'
+        urls = re.findall(url_pattern, message.content)
+        
+        # If message contains URLs, allow it
+        if urls:
+            logger.info(f"Message {message.id} in links dump channel contains URL, allowing")
+            return False
+            
+        # Message doesn't contain URLs, send warning and schedule deletion
+        logger.info(f"Deleting non-link message {message.id} in links dump channel")
+        
+        warning_msg = await message.channel.send(
+            f"{message.author.mention} We only allow sharing of links in this channel. "
+            "If you want to comment on a link please put it in a thread, "
+            "otherwise type your message in the appropriate channel. "
+            "This message will be deleted in 1 minute."
+        )
+        
+        # Schedule deletion of both messages after 1 minute (60 seconds)
+        async def delete_messages():
+            await asyncio.sleep(60)  # 1 minute
+            try:
+                await message.delete()
+                logger.info(f"Deleted original message {message.id} from links dump channel")
+            except discord.NotFound:
+                logger.info(f"Original message {message.id} already deleted")
+            except discord.Forbidden:
+                logger.warning(f"No permission to delete original message {message.id}")
+            except Exception as e:
+                logger.error(f"Error deleting original message {message.id}: {e}")
+                
+            try:
+                await warning_msg.delete()
+                logger.info(f"Deleted warning message {warning_msg.id} from links dump channel")
+            except discord.NotFound:
+                logger.info(f"Warning message {warning_msg.id} already deleted")
+            except discord.Forbidden:
+                logger.warning(f"No permission to delete warning message {warning_msg.id}")
+            except Exception as e:
+                logger.error(f"Error deleting warning message {warning_msg.id}: {e}")
+        
+        # Create background task for deletion
+        asyncio.create_task(delete_messages())
+        
+        return True  # Message was handled
+        
+    except Exception as e:
+        logger.error(f"Error handling links dump channel message {message.id}: {e}", exc_info=True)
+        return False
+
 @bot.event
 async def on_ready():
     set_discord_client(bot) # Set the client instance for summarization tasks
@@ -202,6 +279,12 @@ async def on_message(message):
     # Ignore messages from the bot itself
     if message.author == bot.user:
         return
+
+    # Handle links dump channel logic first
+    # This needs to happen before storing in database to avoid storing deleted messages
+    handled_by_links_dump = await handle_links_dump_channel(message)
+    if handled_by_links_dump:
+        return  # Message was handled (deleted), stop processing
 
     # Log message details - safely handle DMs and different channel types
     guild_name = message.guild.name if message.guild else "DM"
