@@ -50,7 +50,7 @@ async def test_handle_links_dump_channel():
     # Mock config
     mock_config = MagicMock()
     mock_config.links_dump_channel_id = "123456789"
-    mock_config.allow_forwarded_in_links_dump = True
+    # Note: allow_forwarded_in_links_dump is no longer used as forwarded messages are always allowed
     
     # Mock message objects
     def create_mock_message(content, channel_id, is_bot=False, reference=None):
@@ -108,14 +108,14 @@ def test_config_integration():
         os.environ['OPENROUTER_API_KEY'] = 'dummy_key'
         os.environ['FIRECRAWL_API_KEY'] = 'dummy_key'
         os.environ['LINKS_DUMP_CHANNEL_ID'] = '123456789'
-        os.environ['ALLOW_FORWARDED_IN_LINKS_DUMP'] = 'true'
+        # ALLOW_FORWARDED_IN_LINKS_DUMP is no longer used as forwarded messages are always allowed
         
         import config
         
         # Check if the new config option is available
-        if hasattr(config, 'links_dump_channel_id') and hasattr(config, 'allow_forwarded_in_links_dump'):
+        if hasattr(config, 'links_dump_channel_id'):
             print(
-                f"✓ Config loaded, links_dump_channel_id = {config.links_dump_channel_id}, allow_forwarded = {config.allow_forwarded_in_links_dump}"
+                f"✓ Config loaded, links_dump_channel_id = {config.links_dump_channel_id}"
             )
             return True
         else:

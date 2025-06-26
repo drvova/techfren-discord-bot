@@ -58,10 +58,9 @@ reports_channel_id = os.getenv('REPORTS_CHANNEL_ID')
 # Channel where only links are allowed - text messages will be auto-deleted
 links_dump_channel_id = os.getenv('LINKS_DUMP_CHANNEL_ID')
 
-# Allow forwarded messages in the links dump channel (optional)
-# Environment variable: ALLOW_FORWARDED_IN_LINKS_DUMP
-# Set to "true" to keep cross-channel forwarded messages
-allow_forwarded_in_links_dump = os.getenv('ALLOW_FORWARDED_IN_LINKS_DUMP', 'false').lower() in ('1', 'true', 'yes')
+# Forwarded messages in the links dump channel are always allowed
+# Note: The ALLOW_FORWARDED_IN_LINKS_DUMP environment variable is no longer used
+allow_forwarded_in_links_dump = True
 
 # Summary Command Limits
 # Maximum hours that can be requested in summary commands (7 days)
