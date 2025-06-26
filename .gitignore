@@ -52,3 +52,8 @@ discord-bot.pem
 
 # Code review reports
 code-reviews/
+
+# Test files for development
+test_links_dump.py
+test_url_detection.py
+test_final_integration.py
