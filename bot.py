@@ -156,9 +156,19 @@ async def handle_links_dump_channel(message: discord.Message) -> bool:
         url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?(?:\?[^\s]*)?'
         urls = re.findall(url_pattern, message.content)
         
+
         # If message contains URLs, allow it
         if urls:
             logger.info(f"Message {message.id} in links dump channel contains URL, allowing")
+            return False
+
+        # Always allow forwarded messages from other channels
+        if message.reference and message.reference.message_id and (
+            message.reference.channel_id != message.channel.id
+        ):
+            logger.info(
+                f"Message {message.id} is forwarded from another channel, allowing"
+            )
             return False
             
         # Message doesn't contain URLs, send warning and schedule deletion

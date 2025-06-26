@@ -10,6 +10,7 @@ Add the channel ID to your `.env` file:
 
 ```env
 LINKS_DUMP_CHANNEL_ID=your_channel_id_here
+# Note: Forwarded messages from other channels are always allowed
 ```
 
 To find your channel ID:
@@ -23,6 +24,7 @@ To find your channel ID:
 - Messages containing URLs (http:// or https://) are allowed to remain
 - Bot messages are ignored
 - Commands are processed normally
+- Forwarded messages from other channels are always allowed
 
 ### Deleted Messages
 - Text-only messages (no URLs) are automatically deleted after 1 minute
@@ -33,6 +35,7 @@ To find your channel ID:
 
 ✅ **Allowed**: "Check out this cool article: https://example.com"
 ✅ **Allowed**: "https://github.com/user/repo - great project!"
+✅ **Allowed**: forward of a message
 ❌ **Deleted**: "What do you think about this?"
 ❌ **Deleted**: "Thanks for sharing!"
 

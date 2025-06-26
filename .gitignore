@@ -57,3 +57,7 @@ code-reviews/
 test_links_dump.py
 test_url_detection.py
 test_final_integration.py
+
+
+#Ignore vscode AI rules
+.github\copilot-instructions.md
