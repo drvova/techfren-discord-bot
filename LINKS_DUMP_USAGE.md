@@ -35,7 +35,7 @@ To find your channel ID:
 
 ✅ **Allowed**: "Check out this cool article: https://example.com"
 ✅ **Allowed**: "https://github.com/user/repo - great project!"
-✅ **Allowed**: forward of a message from #general
+✅ **Allowed**: forward of a message
 ❌ **Deleted**: "What do you think about this?"
 ❌ **Deleted**: "Thanks for sharing!"
 
