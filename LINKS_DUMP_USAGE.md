@@ -23,6 +23,7 @@ To find your channel ID:
 - Messages containing URLs (http:// or https://) are allowed to remain
 - Bot messages are ignored
 - Commands are processed normally
+- Forwarded messages from other channels are allowed by default
 
 ### Deleted Messages
 - Text-only messages (no URLs) are automatically deleted after 1 minute
@@ -33,6 +34,7 @@ To find your channel ID:
 
 ✅ **Allowed**: "Check out this cool article: https://example.com"
 ✅ **Allowed**: "https://github.com/user/repo - great project!"
+✅ **Allowed**: forward of a message from #general
 ❌ **Deleted**: "What do you think about this?"
 ❌ **Deleted**: "Thanks for sharing!"
 

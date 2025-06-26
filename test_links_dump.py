@@ -52,7 +52,7 @@ async def test_handle_links_dump_channel():
     mock_config.links_dump_channel_id = "123456789"
     
     # Mock message objects
-    def create_mock_message(content, channel_id, is_bot=False):
+    def create_mock_message(content, channel_id, is_bot=False, reference=None):
         message = MagicMock()
         message.content = content
         message.channel.id = int(channel_id)
@@ -61,21 +61,28 @@ async def test_handle_links_dump_channel():
         message.author.mention = "@testuser"
         message.channel.send = AsyncMock()
         message.delete = AsyncMock()
+        message.reference = reference
         return message
     
     # Test cases
+    cross_ref = MagicMock()
+    cross_ref.message_id = 222
+    cross_ref.channel_id = 987654321
+    cross_ref.cached_message = None
+
     test_cases = [
-        # (content, channel_id, is_bot, should_be_handled, description)
-        ("Check this link: https://example.com", "123456789", False, False, "URL in links dump channel"),
-        ("Just text", "123456789", False, True, "Text only in links dump channel"),
-        ("Just text", "987654321", False, False, "Text in different channel"),
-        ("Any content", "123456789", True, False, "Bot message in links dump channel"),
+        # (content, channel_id, is_bot, reference, should_be_handled, description)
+        ("Check this link: https://example.com", "123456789", False, None, False, "URL in links dump channel"),
+        ("Just text", "123456789", False, None, True, "Text only in links dump channel"),
+        ("Just text", "987654321", False, None, False, "Text in different channel"),
+        ("Any content", "123456789", True, None, False, "Bot message in links dump channel"),
+        ("Forwarded", "123456789", False, cross_ref, False, "Forwarded message allowed"),
     ]
     
     with patch('bot.config', mock_config):
         with patch('bot.asyncio.create_task') as mock_create_task:
-            for content, channel_id, is_bot, should_be_handled, description in test_cases:
-                message = create_mock_message(content, channel_id, is_bot)
+            for content, channel_id, is_bot, reference, should_be_handled, description in test_cases:
+                message = create_mock_message(content, channel_id, is_bot, reference)
                 
                 try:
                     result = await handle_links_dump_channel(message)
@@ -103,9 +110,11 @@ def test_config_integration():
         
         import config
         
-        # Check if the new config option is available
+        # Check if the config option is available
         if hasattr(config, 'links_dump_channel_id'):
-            print(f"✓ Config loaded, links_dump_channel_id = {config.links_dump_channel_id}")
+            print(
+                f"✓ Config loaded, links_dump_channel_id = {config.links_dump_channel_id}"
+            )
             return True
         else:
             print("✗ Config missing links_dump_channel_id attribute")
