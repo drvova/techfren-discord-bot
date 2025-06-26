@@ -53,6 +53,11 @@ summary_hour = int(os.getenv('SUMMARY_HOUR', '0'))
 summary_minute = int(os.getenv('SUMMARY_MINUTE', '0'))
 reports_channel_id = os.getenv('REPORTS_CHANNEL_ID')
 
+# Links Dump Channel Configuration (optional)
+# Environment variable: LINKS_DUMP_CHANNEL_ID
+# Channel where only links are allowed - text messages will be auto-deleted
+links_dump_channel_id = os.getenv('LINKS_DUMP_CHANNEL_ID')
+
 # Summary Command Limits
 # Maximum hours that can be requested in summary commands (7 days)
 MAX_SUMMARY_HOURS = 168
