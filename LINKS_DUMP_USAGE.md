@@ -11,7 +11,6 @@ Add the channel ID to your `.env` file:
 ```env
 LINKS_DUMP_CHANNEL_ID=your_channel_id_here
 # Note: Forwarded messages from other channels are always allowed
-# ALLOW_FORWARDED_IN_LINKS_DUMP is no longer used
 ```
 
 To find your channel ID:
