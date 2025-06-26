@@ -129,7 +129,7 @@ async def process_url(message_id: str, url: str):
 async def handle_links_dump_channel(message: discord.Message) -> bool:
     """
     Handle messages in the links dump channel.
-    Delete non-link messages with a warning that auto-deletes after 5 minutes.
+    Delete non-link messages with a warning that auto-deletes after 1 minute.
     
     Args:
         message: The Discord message to check
@@ -168,12 +168,12 @@ async def handle_links_dump_channel(message: discord.Message) -> bool:
             f"{message.author.mention} We only allow sharing of links in this channel. "
             "If you want to comment on a link please put it in a thread, "
             "otherwise type your message in the appropriate channel. "
-            "This message will be deleted in 5 minutes."
+            "This message will be deleted in 1 minute."
         )
         
-        # Schedule deletion of both messages after 5 minutes (300 seconds)
+        # Schedule deletion of both messages after 1 minute (60 seconds)
         async def delete_messages():
-            await asyncio.sleep(300)  # 5 minutes
+            await asyncio.sleep(60)  # 1 minute
             try:
                 await message.delete()
                 logger.info(f"Deleted original message {message.id} from links dump channel")
