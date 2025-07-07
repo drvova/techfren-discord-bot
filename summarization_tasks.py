@@ -146,7 +146,7 @@ async def post_summary_to_reports_channel(_, channel_name, __, summary_text):
 
         summary_parts = await split_long_message(summary_text)
         for part in summary_parts:
-            await reports_channel.send(part, allowed_mentions=discord.AllowedMentions.none())
+            await reports_channel.send(part, allowed_mentions=discord.AllowedMentions.none(), suppress_embeds=True)
         logger.info(f"Posted summary for channel {channel_name} to reports channel")
     except Exception as e:
         logger.error(f"Error posting summary to reports channel: {str(e)}", exc_info=True)

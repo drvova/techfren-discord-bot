@@ -110,13 +110,13 @@ async def _send_error_response_thread(message: discord.Message, client_user: dis
         else:
             # Fallback to channel response
             allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
-            bot_response = await message.channel.send(error_msg, allowed_mentions=allowed_mentions)
+            bot_response = await message.channel.send(error_msg, allowed_mentions=allowed_mentions, suppress_embeds=True)
             await store_bot_response_db(bot_response, client_user, message.guild, message.channel, error_msg)
     except Exception as e:
         logger.error(f"Error sending error response in thread: {str(e)}", exc_info=True)
         # Ultimate fallback to channel response
         allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
-        bot_response = await message.channel.send(error_msg, allowed_mentions=allowed_mentions)
+        bot_response = await message.channel.send(error_msg, allowed_mentions=allowed_mentions, suppress_embeds=True)
         await store_bot_response_db(bot_response, client_user, message.guild, message.channel, error_msg)
 
 
@@ -138,7 +138,7 @@ async def _handle_bot_command_fallback(message: discord.Message, client_user: di
 
         for part in message_parts:
             allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
-            bot_response = await message.channel.send(part, allowed_mentions=allowed_mentions)
+            bot_response = await message.channel.send(part, allowed_mentions=allowed_mentions, suppress_embeds=True)
             await store_bot_response_db(bot_response, client_user, message.guild, message.channel, part)
 
         await processing_msg.delete()
@@ -148,7 +148,7 @@ async def _handle_bot_command_fallback(message: discord.Message, client_user: di
         import config
         error_msg = config.ERROR_MESSAGES['processing_error']
         allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
-        bot_response = await message.channel.send(error_msg, allowed_mentions=allowed_mentions)
+        bot_response = await message.channel.send(error_msg, allowed_mentions=allowed_mentions, suppress_embeds=True)
         await store_bot_response_db(bot_response, client_user, message.guild, message.channel, error_msg)
         try:
             await processing_msg.delete()
@@ -175,7 +175,7 @@ def _validate_hours_range(hours: int) -> bool:
 async def _send_error_response(message: discord.Message, client_user: discord.ClientUser, error_msg: str) -> None:
     """Send error response and store in database."""
     allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
-    bot_response = await message.channel.send(error_msg, allowed_mentions=allowed_mentions)
+    bot_response = await message.channel.send(error_msg, allowed_mentions=allowed_mentions, suppress_embeds=True)
     await store_bot_response_db(bot_response, client_user, message.guild, message.channel, error_msg)
 
 # Helper function for message command handling
