@@ -385,19 +385,8 @@ async def on_message(message):
         if not success:
             logger.warning(f"Failed to store message {message.id} in database")
 
-        # Check for URLs in the message content
-        if not is_command and not message.author.bot and success:
-            # URL regex pattern - capture the full URL including path and query parameters
-            url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?(?:\?[^\s]*)?'
-            urls = re.findall(url_pattern, message.content)
-
-            if urls:
-                # Process the first URL found
-                url = urls[0]
-                logger.info(f"Found URL in message {message.id}: {url}")
-
-                # Create a background task to process the URL
-                asyncio.create_task(process_url(message.id, url))
+        # Note: Automatic URL processing disabled - URLs are now processed on-demand when requested
+        # This saves resources and avoids processing URLs that nobody asks about
     except Exception as e:
         logger.error(f"Error storing message in database: {str(e)}", exc_info=True)
 
