@@ -13,6 +13,7 @@ from logging_config import logger # Import the logger from the new module
 from rate_limiter import check_rate_limit, update_rate_limit_config # Import rate limiting functions
 from llm_handler import call_llm_api, call_llm_for_summary, summarize_scraped_content # Import LLM functions
 from message_utils import split_long_message # Import message utility functions
+from youtube_handler import is_youtube_url, scrape_youtube_content # Import YouTube functions
 from summarization_tasks import daily_channel_summarization, set_discord_client, before_daily_summarization # Import summarization tasks
 from config_validator import validate_config # Import config validator
 from command_handler import handle_bot_command, handle_sum_day_command, handle_sum_hr_command # Import command handlers
@@ -41,8 +42,23 @@ async def process_url(message_id: str, url: str):
     try:
         logger.info(f"Processing URL {url} from message {message_id}")
 
+        # Check if the URL is from YouTube
+        if await is_youtube_url(url):
+            logger.info(f"Detected YouTube URL: {url}")
+            
+            # Use YouTube handler to scrape content
+            scraped_result = await scrape_youtube_content(url)
+            
+            # If YouTube scraping fails, fall back to Firecrawl
+            if not scraped_result:
+                logger.warning(f"Failed to scrape YouTube content, falling back to Firecrawl: {url}")
+                scraped_result = await scrape_url_content(url)
+            else:
+                logger.info(f"Successfully scraped YouTube content: {url}")
+                # Extract markdown content from the scraped result
+                markdown_content = scraped_result.get('markdown')
         # Check if the URL is from Twitter/X.com
-        if await is_twitter_url(url):
+        elif await is_twitter_url(url):
             logger.info(f"Detected Twitter/X.com URL: {url}")
 
             # Validate if the URL contains a tweet ID (status)
@@ -78,7 +94,7 @@ async def process_url(message_id: str, url: str):
                         # Extract markdown content from the scraped result
                         markdown_content = scraped_result.get('markdown')
         else:
-            # For non-Twitter/X.com URLs, use Firecrawl
+            # For non-Twitter/X.com and non-YouTube URLs, use Firecrawl
             scraped_result = await scrape_url_content(url)
             markdown_content = scraped_result  # Firecrawl returns markdown directly
 
@@ -87,16 +103,25 @@ async def process_url(message_id: str, url: str):
             logger.warning(f"Failed to scrape content from URL: {url}")
             return
 
-        # For Twitter/X.com URLs scraped with Apify, we already have the markdown content
-        if await is_twitter_url(url) and hasattr(config, 'apify_api_token') and config.apify_api_token:
+        # Handle different types of scraped results
+        if await is_youtube_url(url):
+            # YouTube handler returns a dict with 'markdown' key
+            if isinstance(scraped_result, dict) and 'markdown' in scraped_result:
+                markdown_content = scraped_result.get("markdown", "")
+            else:
+                logger.warning(f"Invalid scraped result structure for YouTube URL {url}: expected dict with 'markdown' key")
+                return
+        elif await is_twitter_url(url) and hasattr(config, 'apify_api_token') and config.apify_api_token:
+            # Twitter/X.com URLs scraped with Apify return a dict with 'markdown' key
             if isinstance(scraped_result, dict) and 'markdown' in scraped_result:
                 markdown_content = scraped_result.get("markdown", "")
             else:
                 logger.warning(f"Invalid scraped result structure for Twitter URL {url}: expected dict with 'markdown' key")
                 return
         else:
+            # Firecrawl returns markdown directly as a string
             if isinstance(scraped_result, str):
-                markdown_content = scraped_result  # Firecrawl returns markdown directly
+                markdown_content = scraped_result
             else:
                 logger.warning(f"Invalid scraped result for URL {url}: expected string, got {type(scraped_result)}")
                 return
@@ -360,19 +385,8 @@ async def on_message(message):
         if not success:
             logger.warning(f"Failed to store message {message.id} in database")
 
-        # Check for URLs in the message content
-        if not is_command and not message.author.bot and success:
-            # URL regex pattern - capture the full URL including path and query parameters
-            url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?(?:\?[^\s]*)?'
-            urls = re.findall(url_pattern, message.content)
-
-            if urls:
-                # Process the first URL found
-                url = urls[0]
-                logger.info(f"Found URL in message {message.id}: {url}")
-
-                # Create a background task to process the URL
-                asyncio.create_task(process_url(message.id, url))
+        # Note: Automatic URL processing disabled - URLs are now processed on-demand when requested
+        # This saves resources and avoids processing URLs that nobody asks about
     except Exception as e:
         logger.error(f"Error storing message in database: {str(e)}", exc_info=True)
 

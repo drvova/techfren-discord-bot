@@ -1,9 +1,91 @@
-from openai import OpenAI
+from openai import AsyncOpenAI
 from logging_config import logger
 import config # Assuming config.py is in the same directory or accessible
 import json
 from typing import Optional, Dict, Any
+import asyncio
+import re
 from message_utils import generate_discord_message_link
+from database import get_scraped_content_by_url
+
+def extract_urls_from_text(text: str) -> list[str]:
+    """
+    Extract URLs from text using regex.
+    
+    Args:
+        text (str): Text to search for URLs
+        
+    Returns:
+        list[str]: List of URLs found in the text
+    """
+    url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?(?:\?[^\s]*)?'
+    return re.findall(url_pattern, text)
+
+async def scrape_url_on_demand(url: str) -> Optional[Dict[str, Any]]:
+    """
+    Scrape a URL on-demand and return summarized content.
+    
+    Args:
+        url (str): The URL to scrape
+        
+    Returns:
+        Optional[Dict[str, Any]]: Dictionary containing summary and key_points, or None if failed
+    """
+    try:
+        # Import here to avoid circular imports
+        from youtube_handler import is_youtube_url, scrape_youtube_content
+        from firecrawl_handler import scrape_url_content
+        from apify_handler import is_twitter_url, scrape_twitter_content
+        import config
+        
+        # Check if the URL is from YouTube
+        if await is_youtube_url(url):
+            logger.info(f"Scraping YouTube URL on-demand: {url}")
+            scraped_result = await scrape_youtube_content(url)
+            if not scraped_result:
+                logger.warning(f"Failed to scrape YouTube content: {url}")
+                return None
+            markdown_content = scraped_result.get('markdown', '')
+            
+        # Check if the URL is from Twitter/X.com
+        elif await is_twitter_url(url):
+            logger.info(f"Scraping Twitter/X.com URL on-demand: {url}")
+            if hasattr(config, 'apify_api_token') and config.apify_api_token:
+                scraped_result = await scrape_twitter_content(url)
+                if not scraped_result:
+                    logger.warning(f"Failed to scrape Twitter content with Apify, falling back to Firecrawl: {url}")
+                    scraped_result = await scrape_url_content(url)
+                    markdown_content = scraped_result if isinstance(scraped_result, str) else ''
+                else:
+                    markdown_content = scraped_result.get('markdown', '')
+            else:
+                scraped_result = await scrape_url_content(url)
+                markdown_content = scraped_result if isinstance(scraped_result, str) else ''
+                
+        else:
+            # For other URLs, use Firecrawl
+            logger.info(f"Scraping URL with Firecrawl on-demand: {url}")
+            scraped_result = await scrape_url_content(url)
+            markdown_content = scraped_result if isinstance(scraped_result, str) else ''
+        
+        if not markdown_content:
+            logger.warning(f"No content scraped for URL: {url}")
+            return None
+            
+        # Summarize the scraped content
+        summarized_data = await summarize_scraped_content(markdown_content, url)
+        if not summarized_data:
+            logger.warning(f"Failed to summarize scraped content for URL: {url}")
+            return None
+            
+        return {
+            'summary': summarized_data.get('summary', ''),
+            'key_points': summarized_data.get('key_points', [])
+        }
+        
+    except Exception as e:
+        logger.error(f"Error scraping URL on-demand {url}: {str(e)}", exc_info=True)
+        return None
 
 async def call_llm_api(query, message_context=None):
     """
@@ -25,9 +107,10 @@ async def call_llm_api(query, message_context=None):
             return "Error: OpenRouter API key is missing. Please contact the bot administrator."
 
         # Initialize the OpenAI client with OpenRouter base URL
-        openai_client = OpenAI(
+        openai_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter
+            api_key=config.openrouter,
+            timeout=60.0
         )
 
         # Get the model from config or use default
@@ -65,8 +148,63 @@ async def call_llm_api(query, message_context=None):
                 user_content = f"{context_text}\n\n**User's Question/Request:**\n{query}"
                 logger.debug(f"Added message context to LLM prompt: {len(context_parts)} context message(s)")
 
+        # Check for URLs in the query and message context, add scraped content if available
+        urls_in_query = extract_urls_from_text(query)
+        
+        # Also check for URLs in message context (referenced messages, linked messages)
+        context_urls = []
+        if message_context:
+            if message_context.get('referenced_message'):
+                ref_content = getattr(message_context['referenced_message'], 'content', '')
+                context_urls.extend(extract_urls_from_text(ref_content))
+            
+            if message_context.get('linked_messages'):
+                for linked_msg in message_context['linked_messages']:
+                    linked_content = getattr(linked_msg, 'content', '')
+                    context_urls.extend(extract_urls_from_text(linked_content))
+        
+        # Combine all URLs found
+        all_urls = urls_in_query + context_urls
+        if all_urls:
+            scraped_content_parts = []
+            for url in all_urls:
+                try:
+                    scraped_content = await asyncio.to_thread(get_scraped_content_by_url, url)
+                    if scraped_content:
+                        logger.info(f"Found scraped content for URL: {url}")
+                        content_section = f"**Scraped Content for {url}:**\n"
+                        content_section += f"Summary: {scraped_content['summary']}\n"
+                        if scraped_content['key_points']:
+                            content_section += f"Key Points: {', '.join(scraped_content['key_points'])}\n"
+                        scraped_content_parts.append(content_section)
+                    else:
+                        # URL not found in database, try to scrape it now
+                        logger.info(f"No scraped content found for URL {url}, attempting to scrape now...")
+                        scraped_content = await scrape_url_on_demand(url)
+                        if scraped_content:
+                            logger.info(f"Successfully scraped content for URL: {url}")
+                            content_section = f"**Scraped Content for {url}:**\n"
+                            content_section += f"Summary: {scraped_content['summary']}\n"
+                            if scraped_content['key_points']:
+                                content_section += f"Key Points: {', '.join(scraped_content['key_points'])}\n"
+                            scraped_content_parts.append(content_section)
+                        else:
+                            logger.warning(f"Failed to scrape content for URL: {url}")
+                except Exception as e:
+                    logger.warning(f"Error retrieving scraped content for URL {url}: {e}")
+            
+            if scraped_content_parts:
+                scraped_content_text = "\n\n".join(scraped_content_parts)
+                if message_context:
+                    # If we already have message context, add scraped content to it
+                    user_content = f"{scraped_content_text}\n\n{user_content}"
+                else:
+                    # If no message context, add scraped content before the query
+                    user_content = f"{scraped_content_text}\n\n**User's Question/Request:**\n{query}"
+                logger.debug(f"Added scraped content to LLM prompt: {len(scraped_content_parts)} URL(s) with content")
+
         # Make the API request
-        completion = openai_client.chat.completions.create(
+        completion = await openai_client.chat.completions.create(
             extra_headers={
                 "HTTP-Referer": "https://techfren.net",  # Optional site URL
                 "X-Title": "TechFren Discord Bot",  # Optional site title
@@ -94,6 +232,9 @@ async def call_llm_api(query, message_context=None):
         logger.info(f"LLM API response received successfully: {message[:50]}{'...' if len(message) > 50 else ''}")
         return message
 
+    except asyncio.TimeoutError:
+        logger.error("LLM API request timed out")
+        return "Sorry, the request timed out. Please try again later."
     except Exception as e:
         logger.error(f"Error calling LLM API: {str(e)}", exc_info=True)
         return "Sorry, I encountered an error while processing your request. Please try again later."
@@ -206,16 +347,17 @@ At the end, include a section with the top 3 most interesting or notable one-lin
             return "Error: OpenRouter API key is missing. Please contact the bot administrator."
 
         # Initialize the OpenAI client with OpenRouter base URL
-        openai_client = OpenAI(
+        openai_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter
+            api_key=config.openrouter,
+            timeout=60.0
         )
 
         # Get the model from config or use default
         model = getattr(config, 'llm_model', "x-ai/grok-3-mini-beta")
 
         # Make the API request with a higher token limit for summaries
-        completion = openai_client.chat.completions.create(
+        completion = await openai_client.chat.completions.create(
             extra_headers={
                 "HTTP-Referer": "https://techfren.net",
                 "X-Title": "TechFren Discord Bot",
@@ -243,6 +385,9 @@ At the end, include a section with the top 3 most interesting or notable one-lin
         # The thread title already contains the summary information
         return summary
 
+    except asyncio.TimeoutError:
+        logger.error("LLM API request timed out during summary generation")
+        return "Sorry, the summary request timed out. Please try again later."
     except Exception as e:
         logger.error(f"Error calling LLM API for summary: {str(e)}", exc_info=True)
         return "Sorry, I encountered an error while generating the summary. Please try again later."
@@ -274,9 +419,10 @@ async def summarize_scraped_content(markdown_content: str, url: str) -> Optional
             return None
 
         # Initialize the OpenAI client with OpenRouter base URL
-        openai_client = OpenAI(
+        openai_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter
+            api_key=config.openrouter,
+            timeout=60.0
         )
 
         # Get the model from config or use default
@@ -307,7 +453,7 @@ Format your response exactly as follows:
 """
 
         # Make the API request
-        completion = openai_client.chat.completions.create(
+        completion = await openai_client.chat.completions.create(
             extra_headers={
                 "HTTP-Referer": "https://techfren.net",
                 "X-Title": "TechFren Discord Bot",
@@ -366,6 +512,9 @@ Format your response exactly as follows:
                 "key_points": ["The content could not be properly summarized due to a processing error."]
             }
 
+    except asyncio.TimeoutError:
+        logger.error(f"LLM API request timed out while summarizing content from URL {url}")
+        return None
     except Exception as e:
         logger.error(f"Error summarizing content from URL {url}: {str(e)}", exc_info=True)
         return None
