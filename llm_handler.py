@@ -1,8 +1,9 @@
-from openai import OpenAI
+from openai import AsyncOpenAI
 from logging_config import logger
 import config # Assuming config.py is in the same directory or accessible
 import json
 from typing import Optional, Dict, Any
+import asyncio
 from message_utils import generate_discord_message_link
 
 async def call_llm_api(query, message_context=None):
@@ -25,9 +26,10 @@ async def call_llm_api(query, message_context=None):
             return "Error: OpenRouter API key is missing. Please contact the bot administrator."
 
         # Initialize the OpenAI client with OpenRouter base URL
-        openai_client = OpenAI(
+        openai_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter
+            api_key=config.openrouter,
+            timeout=60.0
         )
 
         # Get the model from config or use default
@@ -66,7 +68,7 @@ async def call_llm_api(query, message_context=None):
                 logger.debug(f"Added message context to LLM prompt: {len(context_parts)} context message(s)")
 
         # Make the API request
-        completion = openai_client.chat.completions.create(
+        completion = await openai_client.chat.completions.create(
             extra_headers={
                 "HTTP-Referer": "https://techfren.net",  # Optional site URL
                 "X-Title": "TechFren Discord Bot",  # Optional site title
@@ -94,6 +96,9 @@ async def call_llm_api(query, message_context=None):
         logger.info(f"LLM API response received successfully: {message[:50]}{'...' if len(message) > 50 else ''}")
         return message
 
+    except asyncio.TimeoutError:
+        logger.error("LLM API request timed out")
+        return "Sorry, the request timed out. Please try again later."
     except Exception as e:
         logger.error(f"Error calling LLM API: {str(e)}", exc_info=True)
         return "Sorry, I encountered an error while processing your request. Please try again later."
@@ -206,16 +211,17 @@ At the end, include a section with the top 3 most interesting or notable one-lin
             return "Error: OpenRouter API key is missing. Please contact the bot administrator."
 
         # Initialize the OpenAI client with OpenRouter base URL
-        openai_client = OpenAI(
+        openai_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter
+            api_key=config.openrouter,
+            timeout=60.0
         )
 
         # Get the model from config or use default
         model = getattr(config, 'llm_model', "x-ai/grok-3-mini-beta")
 
         # Make the API request with a higher token limit for summaries
-        completion = openai_client.chat.completions.create(
+        completion = await openai_client.chat.completions.create(
             extra_headers={
                 "HTTP-Referer": "https://techfren.net",
                 "X-Title": "TechFren Discord Bot",
@@ -243,6 +249,9 @@ At the end, include a section with the top 3 most interesting or notable one-lin
         # The thread title already contains the summary information
         return summary
 
+    except asyncio.TimeoutError:
+        logger.error("LLM API request timed out during summary generation")
+        return "Sorry, the summary request timed out. Please try again later."
     except Exception as e:
         logger.error(f"Error calling LLM API for summary: {str(e)}", exc_info=True)
         return "Sorry, I encountered an error while generating the summary. Please try again later."
@@ -274,9 +283,10 @@ async def summarize_scraped_content(markdown_content: str, url: str) -> Optional
             return None
 
         # Initialize the OpenAI client with OpenRouter base URL
-        openai_client = OpenAI(
+        openai_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter
+            api_key=config.openrouter,
+            timeout=60.0
         )
 
         # Get the model from config or use default
@@ -307,7 +317,7 @@ Format your response exactly as follows:
 """
 
         # Make the API request
-        completion = openai_client.chat.completions.create(
+        completion = await openai_client.chat.completions.create(
             extra_headers={
                 "HTTP-Referer": "https://techfren.net",
                 "X-Title": "TechFren Discord Bot",
@@ -366,6 +376,9 @@ Format your response exactly as follows:
                 "key_points": ["The content could not be properly summarized due to a processing error."]
             }
 
+    except asyncio.TimeoutError:
+        logger.error(f"LLM API request timed out while summarizing content from URL {url}")
+        return None
     except Exception as e:
         logger.error(f"Error summarizing content from URL {url}: {str(e)}", exc_info=True)
         return None
