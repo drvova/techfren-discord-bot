@@ -800,3 +800,60 @@ def get_active_channels(hours: int = 24) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error getting active channels for the last {hours} hours: {str(e)}", exc_info=True)
         return []
+
+def get_scraped_content_by_url(url: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve scraped content for a specific URL from the database.
+    
+    Args:
+        url (str): The URL to search for
+        
+    Returns:
+        Optional[Dict[str, Any]]: Dictionary containing scraped content if found, None otherwise
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Query for messages with scraped content for this URL
+            cursor.execute(
+                """
+                SELECT 
+                    scraped_url,
+                    scraped_content_summary,
+                    scraped_content_key_points,
+                    created_at
+                FROM messages 
+                WHERE scraped_url = ? AND scraped_content_summary IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (url,)
+            )
+            
+            row = cursor.fetchone()
+            if not row:
+                logger.debug(f"No scraped content found for URL: {url}")
+                return None
+            
+            # Parse key points JSON
+            key_points = []
+            if row['scraped_content_key_points']:
+                try:
+                    key_points = json.loads(row['scraped_content_key_points'])
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON in scraped_content_key_points for URL {url}")
+            
+            result = {
+                'url': row['scraped_url'],
+                'summary': row['scraped_content_summary'],
+                'key_points': key_points,
+                'created_at': row['created_at']
+            }
+            
+            logger.debug(f"Retrieved scraped content for URL: {url}")
+            return result
+            
+    except Exception as e:
+        logger.error(f"Error retrieving scraped content for URL {url}: {str(e)}", exc_info=True)
+        return None

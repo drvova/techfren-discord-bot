@@ -64,8 +64,8 @@ async def get_video_transcript(video_id: str) -> Optional[str]:
         )
         
         # Format the transcript as plain text
-        formatter = TextFormatter()
-        transcript_text = formatter.format_transcript(transcript_list)
+        # Each entry in transcript_list is a dict with 'text', 'start', 'duration' keys
+        transcript_text = ' '.join([entry['text'] for entry in transcript_list])
         
         logger.info(f"Successfully retrieved transcript for video ID: {video_id}")
         return transcript_text
