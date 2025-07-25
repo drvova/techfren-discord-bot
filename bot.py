@@ -170,7 +170,18 @@ async def handle_links_dump_channel(message: discord.Message) -> bool:
         if not hasattr(config, 'links_dump_channel_id') or not config.links_dump_channel_id:
             return False
             
-        if str(message.channel.id) != config.links_dump_channel_id:
+        # Check if this is the links dump channel or a thread within it
+        is_links_dump_channel = False
+        
+        if str(message.channel.id) == config.links_dump_channel_id:
+            # Direct message in the links dump channel
+            is_links_dump_channel = True
+        elif isinstance(message.channel, discord.Thread) and str(message.channel.parent_id) == config.links_dump_channel_id:
+            # Message in a thread created from the links dump channel - allow these
+            logger.info(f"Message {message.id} is in a thread from links dump channel, allowing")
+            return False
+            
+        if not is_links_dump_channel:
             return False
             
         # Don't handle bot messages or commands
