@@ -72,6 +72,9 @@ A simple Discord bot built with discord.py.
    SUMMARY_HOUR=0  # Hour of the day to run summarization (UTC, 0-23)
    SUMMARY_MINUTE=0  # Minute of the hour to run summarization (0-59)
    REPORTS_CHANNEL_ID=channel_id  # Optional: Channel to post daily summaries
+   PERPLEXITY_BASE_URL=https://api.perplexity.ai  # Base URL for Perplexity API
+   HTTP_REFERER=https://techfren.net  # HTTP Referer header for API requests
+   X_TITLE=TechFren Discord Bot  # X-Title header for API requests
    ```
    - You can get a Perplexity API key by signing up at [Perplexity.ai](https://perplexity.ai/)
    - You can get a Firecrawl API key by signing up at [Firecrawl.dev](https://firecrawl.dev)
