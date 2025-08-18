@@ -209,7 +209,7 @@ class TestMessageReferenceIntegration:
         
         query = "What do these messages say?"
         
-        # Mock the OpenAI client
+        # Mock the Perplexity client
         mock_completion = Mock()
         mock_completion.choices = [Mock()]
         mock_completion.choices[0].message.content = "Test response"
@@ -217,7 +217,7 @@ class TestMessageReferenceIntegration:
         with patch('llm_handler.OpenAI') as mock_openai_class, \
              patch('llm_handler.config') as mock_config:
             
-            mock_config.openrouter = "test-key"
+            mock_config.perplexity = "test-key"
             mock_config.llm_model = "test-model"
             
             mock_client = Mock()

@@ -394,7 +394,8 @@ async def on_message(message):
         )
 
         if not success:
-            logger.warning(f"Failed to store message {message.id} in database")
+            # This is usually because the message already exists (common when bot restarts)
+            logger.debug(f"Failed to store message {message.id} in database (likely duplicate)")
 
         # Note: Automatic URL processing disabled - URLs are now processed on-demand when requested
         # This saves resources and avoids processing URLs that nobody asks about
