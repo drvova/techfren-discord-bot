@@ -264,6 +264,9 @@ def store_message(
         with get_connection() as conn:
             cursor = conn.cursor()
 
+# Ensure consistent datetime format for storage (always UTC, no timezone info for SQLite compatibility)
+            created_at_str = created_at.replace(tzinfo=None).isoformat()
+            
             cursor.execute(
                 INSERT_MESSAGE,
                 (
@@ -275,7 +278,7 @@ def store_message(
                     guild_id,
                     guild_name,
                     content,
-                    created_at.isoformat(),
+                    created_at_str,
                     1 if is_bot else 0,
                     1 if is_command else 0,
                     command_type,
@@ -291,7 +294,8 @@ def store_message(
         return True
     except sqlite3.IntegrityError:
         # This could happen if we try to insert a message with the same ID twice
-        logger.warning(f"Message {message_id} already exists in database")
+        # This is normal when the bot restarts and processes recent messages
+        logger.debug(f"Message {message_id} already exists in database (skipping duplicate)")
         return False
     except Exception as e:
         logger.error(f"Error storing message {message_id}: {str(e)}", exc_info=True)
@@ -316,6 +320,10 @@ async def store_messages_batch(messages: List[Dict[str, Any]]) -> bool:
                 cursor = conn.cursor()
                 
                 for msg in messages:
+                    # Ensure consistent datetime format for storage (always UTC, no timezone info for SQLite compatibility)
+                    created_at = msg['created_at']
+                    created_at_str = created_at.replace(tzinfo=None).isoformat()
+                    
                     cursor.execute(
                         INSERT_MESSAGE,
                         (
@@ -327,7 +335,7 @@ async def store_messages_batch(messages: List[Dict[str, Any]]) -> bool:
                             msg.get('guild_id'),
                             msg.get('guild_name'),
                             msg['content'],
-                            msg['created_at'].isoformat(),
+                            created_at_str,
                             int(msg.get('is_bot', False)),
                             int(msg.get('is_command', False)),
                             msg.get('command_type'),
@@ -540,6 +548,7 @@ def get_channel_messages_for_hours(channel_id: str, date: datetime, hours: int) 
         start_date = date - timedelta(hours=hours)
 
         # Convert to ISO format for database query (remove timezone info for SQLite compatibility)
+        # For SQLite, we need to handle timezone-aware datetime strings properly
         start_date_str = start_date.replace(tzinfo=None).isoformat()
         end_date_str = end_date.replace(tzinfo=None).isoformat()
 
@@ -547,16 +556,22 @@ def get_channel_messages_for_hours(channel_id: str, date: datetime, hours: int) 
             cursor = conn.cursor()
 
             # Query messages for the channel within the time range
+            # Use datetime comparison that works with SQLite's text storage
+            # Handle both timezone-aware and naive datetime strings in the database
             cursor.execute(
                 """
                 SELECT id, author_name, content, created_at, is_bot, is_command,
                        scraped_url, scraped_content_summary, scraped_content_key_points,
                        guild_id
                 FROM messages
-                WHERE channel_id = ? AND created_at BETWEEN ? AND ?
+                WHERE channel_id = ? 
+                AND (
+                    datetime(created_at) BETWEEN datetime(?) AND datetime(?)
+                    OR datetime(substr(created_at, 1, 19)) BETWEEN datetime(?) AND datetime(?)
+                )
                 ORDER BY created_at ASC
                 """,
-                (channel_id, start_date_str, end_date_str)
+                (channel_id, start_date_str, end_date_str, start_date_str, end_date_str)
             )
 
             # Convert rows to dictionaries

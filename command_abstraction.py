@@ -141,6 +141,11 @@ class ThreadManager:
                 return None
         except discord.HTTPException as e:
             logger = logging.getLogger(__name__)
+            # If thread already exists for this message, create a standalone thread in the channel
+            if e.status == 400 and "thread has already been created" in str(e.text).lower():
+                logger.info(f"Message already has a thread, creating standalone thread: '{name}'")
+                # Create a standalone thread in the channel (not attached to any message)
+                return await self.create_thread(name)
             logger.warning(f"Failed to create thread from message '{name}': HTTP {e.status} - {e.text}")
             return None
         except discord.Forbidden as e:

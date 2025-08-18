@@ -7,6 +7,7 @@ import asyncio
 import re
 from message_utils import generate_discord_message_link
 from database import get_scraped_content_by_url
+from discord_formatter import DiscordFormatter
 
 def extract_urls_from_text(text: str) -> list[str]:
     """
@@ -101,21 +102,21 @@ async def call_llm_api(query, message_context=None):
     try:
         logger.info(f"Calling LLM API with query: {query[:50]}{'...' if len(query) > 50 else ''}")
 
-        # Check if OpenRouter API key exists
-        if not hasattr(config, 'openrouter') or not config.openrouter:
-            logger.error("OpenRouter API key not found in config.py or is empty")
-            return "Error: OpenRouter API key is missing. Please contact the bot administrator."
+        # Check if Perplexity API key exists
+        if not hasattr(config, 'perplexity') or not config.perplexity:
+            logger.error("Perplexity API key not found in config.py or is empty")
+            return "Error: Perplexity API key is missing. Please contact the bot administrator."
 
-        # Initialize the OpenAI client with OpenRouter base URL
+# Initialize the OpenAI client with Perplexity base URL
         openai_client = AsyncOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter,
+            base_url=getattr(config, 'perplexity_base_url', 'https://api.perplexity.ai'),
+            api_key=config.perplexity,
             timeout=60.0
         )
-
-        # Get the model from config or use default
-        model = getattr(config, 'llm_model', "x-ai/grok-3-mini-beta")
-
+        
+        # Get the model from config or use default (Perplexity models)
+        model = getattr(config, 'llm_model', "sonar")
+        
         # Prepare the user content with message context if available
         user_content = query
         if message_context:
@@ -206,8 +207,8 @@ async def call_llm_api(query, message_context=None):
         # Make the API request
         completion = await openai_client.chat.completions.create(
             extra_headers={
-                "HTTP-Referer": "https://techfren.net",  # Optional site URL
-                "X-Title": "TechFren Discord Bot",  # Optional site title
+                "HTTP-Referer": getattr(config, 'http_referer', 'https://techfren.net'),  # Optional site URL
+                "X-Title": getattr(config, 'x_title', 'TechFren Discord Bot'),  # Optional site title
             },
             model=model,  # Use the model from config
             messages=[
@@ -223,14 +224,30 @@ async def call_llm_api(query, message_context=None):
                     "content": user_content
                 }
             ],
-            max_tokens=4000,  # Increased for better responses, within reasonable limits
+            max_tokens=1000,  # Increased for better responses
             temperature=0.7
         )
 
         # Extract the response
         message = completion.choices[0].message.content
-        logger.info(f"LLM API response received successfully: {message[:50]}{'...' if len(message) > 50 else ''}")
-        return message
+        
+        # Check if Perplexity returned citations
+        citations = None
+        if hasattr(completion, 'citations') and completion.citations:
+            logger.info(f"Found {len(completion.citations)} citations from Perplexity")
+            citations = completion.citations
+            
+            # If the message contains citation references but no sources section, add it
+            if "Sources:" not in message and any(f"[{i}]" in message for i in range(1, len(citations) + 1)):
+                message += "\n\n📚 **Sources:**\n"
+                for i, citation in enumerate(citations, 1):
+                    message += f"[{i}] <{citation}>\n"
+        
+        # Apply Discord formatting enhancements
+        formatted_message = DiscordFormatter.format_llm_response(message, citations)
+        
+        logger.info(f"LLM API response received successfully: {formatted_message[:50]}{'...' if len(formatted_message) > 50 else ''}")
+        return formatted_message
 
     except asyncio.TimeoutError:
         logger.error("LLM API request timed out")
@@ -291,9 +308,10 @@ async def call_llm_for_summary(messages, channel_name, date, hours=24):
             scraped_summary = msg.get('scraped_content_summary')
             scraped_key_points = msg.get('scraped_content_key_points')
 
-            # Format the message with the basic content and link
+            # Format the message with the basic content and clickable Discord link
             if message_link:
-                message_text = f"[{time_str}] {author_name}: {content} [Link: {message_link}]"
+                # Format as clickable Discord link that the LLM will understand
+                message_text = f"[{time_str}] {author_name}: {content} [Jump to message]({message_link})"
             else:
                 message_text = f"[{time_str}] {author_name}: {content}"
 
@@ -335,55 +353,72 @@ async def call_llm_for_summary(messages, channel_name, date, hours=24):
 
 Provide a concise summary with short bullet points for main topics. Do not include an introductory paragraph.
 Highlight all user names/aliases with backticks (e.g., `username`).
-For each bullet point, include a link to the source message at the end of the bullet point in the format: [Source](link)
-At the end, include a section with the top 3 most interesting or notable one-liner quotes from the conversation, each with their source link.
+IMPORTANT: Each message has a [Jump to message](discord_link) link. For each bullet point, preserve these Discord message links at the end in the format: [Source](https://discord.com/channels/...)
+At the end, include a section with the top 3 most interesting or notable one-liner quotes from the conversation, each with their source link in the same [Source](https://discord.com/channels/...) format.
 """
-
+        
         logger.info(f"Calling LLM API for channel summary: #{channel_name} for the past {time_period}")
 
-        # Check if OpenRouter API key exists
-        if not hasattr(config, 'openrouter') or not config.openrouter:
-            logger.error("OpenRouter API key not found in config.py or is empty")
-            return "Error: OpenRouter API key is missing. Please contact the bot administrator."
+        # Check if Perplexity API key exists
+        if not hasattr(config, 'perplexity') or not config.perplexity:
+            logger.error("Perplexity API key not found in config.py or is empty")
+            return "Error: Perplexity API key is missing. Please contact the bot administrator."
 
-        # Initialize the OpenAI client with OpenRouter base URL
+        # Initialize the OpenAI client with Perplexity base URL
         openai_client = AsyncOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter,
+            base_url=getattr(config, 'perplexity_base_url', 'https://api.perplexity.ai'),
+            api_key=config.perplexity,
             timeout=60.0
         )
 
         # Get the model from config or use default
-        model = getattr(config, 'llm_model', "x-ai/grok-3-mini-beta")
+        model = getattr(config, 'llm_model', "sonar")
 
         # Make the API request with a higher token limit for summaries
         completion = await openai_client.chat.completions.create(
             extra_headers={
-                "HTTP-Referer": "https://techfren.net",
-                "X-Title": "TechFren Discord Bot",
+                "HTTP-Referer": getattr(config, 'http_referer', 'https://techfren.net'),
+                "X-Title": getattr(config, 'x_title', 'TechFren Discord Bot'),
             },
             model=model,  # Use the model from config
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that summarizes Discord conversations. Create concise summaries with short bullet points. Highlight all user names with backticks. For each bullet point, include a link to the source message at the end in the format [Source](link). Do not include an introductory paragraph. End with the top 3 most interesting quotes from the conversation, each with their source link."
+                    "content": "You are a helpful assistant that summarizes Discord conversations. IMPORTANT: For each link or topic mentioned, search the web for relevant context and incorporate that information. When users share GitHub repos, YouTube videos, or documentation, search for and include relevant information about those resources. Create concise summaries with short bullet points that combine the Discord messages with web-sourced context. Highlight all user names with backticks. For each bullet point, include both the Discord message source [Source](link) and cite any web sources you found. End with the top 3 most interesting quotes from the conversation, each with their source link. Always search the web to provide additional context about shared links and topics."
                 },
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            max_tokens=8000,  # Increased token limit for comprehensive summaries (Grok-3-mini context: 131k)
+            max_tokens=2500,  # Increased for very detailed summaries with extensive web context
             temperature=0.5   # Lower temperature for more focused summaries
         )
 
         # Extract the response
         summary = completion.choices[0].message.content
-        logger.info(f"LLM API summary received successfully: {summary[:50]}{'...' if len(summary) > 50 else ''}")
-
-        # Return the summary without adding a redundant header
-        # The thread title already contains the summary information
-        return summary
+        
+        # Check if Perplexity returned citations
+        citations = None
+        if hasattr(completion, 'citations') and completion.citations:
+            logger.info(f"Found {len(completion.citations)} citations from Perplexity for summary")
+            citations = completion.citations
+            
+            # If the summary contains citation references but no sources section, add it
+            if "Sources:" not in summary and any(f"[{i}]" in summary for i in range(1, len(citations) + 1)):
+                summary += "\n\n📚 **Sources:**\n"
+                for i, citation in enumerate(citations, 1):
+                    summary += f"[{i}] <{citation}>\n"
+        
+        # Apply Discord formatting enhancements to the summary
+        formatted_summary = DiscordFormatter.format_llm_response(summary, citations)
+        
+        # Enhance specific sections in the summary
+        formatted_summary = DiscordFormatter._enhance_summary_sections(formatted_summary)
+        
+        logger.info(f"LLM API summary received successfully: {formatted_summary[:50]}{'...' if len(formatted_summary) > 50 else ''}")
+        
+        return formatted_summary
 
     except asyncio.TimeoutError:
         logger.error("LLM API request timed out during summary generation")
@@ -413,20 +448,20 @@ async def summarize_scraped_content(markdown_content: str, url: str) -> Optional
 
         logger.info(f"Summarizing content from URL: {url}")
 
-        # Check if OpenRouter API key exists
-        if not hasattr(config, 'openrouter') or not config.openrouter:
-            logger.error("OpenRouter API key not found in config.py or is empty")
+        # Check if Perplexity API key exists
+        if not hasattr(config, 'perplexity') or not config.perplexity:
+            logger.error("Perplexity API key not found in config.py or is empty")
             return None
 
-        # Initialize the OpenAI client with OpenRouter base URL
+        # Initialize the OpenAI client with Perplexity base URL
         openai_client = AsyncOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter,
+            base_url=getattr(config, 'perplexity_base_url', 'https://api.perplexity.ai'),
+            api_key=config.perplexity,
             timeout=60.0
         )
 
         # Get the model from config or use default
-        model = getattr(config, 'llm_model', "x-ai/grok-3-mini-beta")
+        model = getattr(config, 'llm_model', "sonar")
 
         # Create the prompt for the LLM
         prompt = f"""Please analyze the following content from the URL: {url}
@@ -455,8 +490,8 @@ Format your response exactly as follows:
         # Make the API request
         completion = await openai_client.chat.completions.create(
             extra_headers={
-                "HTTP-Referer": "https://techfren.net",
-                "X-Title": "TechFren Discord Bot",
+                "HTTP-Referer": getattr(config, 'http_referer', 'https://techfren.net'),
+                "X-Title": getattr(config, 'x_title', 'TechFren Discord Bot'),
             },
             model=model,  # Use the model from config
             messages=[
@@ -469,7 +504,7 @@ Format your response exactly as follows:
                     "content": prompt
                 }
             ],
-            max_tokens=6000,  # Increased token limit for content summarization (Grok-3-mini context: 131k)
+            max_tokens=200,  # Perplexity limit: 200 output tokens
             temperature=0.3   # Lower temperature for more focused and consistent summaries
         )
 

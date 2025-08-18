@@ -58,10 +58,22 @@ async def handle_bot_command(message: discord.Message, client_user: discord.Clie
                         logger.warning(f"Failed to get message context: {e}")
 
                 response = await call_llm_api(query, message_context)
-                message_parts = await split_long_message(response)
+                logger.debug(f"Raw response length: {len(response)} characters")
+                logger.debug(f"Response ends with: ...{response[-100:] if len(response) > 100 else response}")
+                
+                # Force split if response is over 900 chars to ensure it doesn't get cut off
+                # Discord has issues with messages near the 2000 char limit
+                if len(response) > 900:
+                    logger.info(f"Splitting response of {len(response)} chars into multiple parts")
+                    message_parts = await split_long_message(response, max_length=900)
+                else:
+                    message_parts = [response]
 
                 # Send all response parts in the thread
-                for part in message_parts:
+                for i, part in enumerate(message_parts, 1):
+                    # Add continuation indicator if there are multiple parts
+                    if len(message_parts) > 1 and i < len(message_parts):
+                        part = part + "\n\n*(continued...)*"
                     bot_response = await thread_sender.send(part)
                     if bot_response:
                         await store_bot_response_db(bot_response, client_user, message.guild, thread, part)
@@ -82,7 +94,7 @@ async def handle_bot_command(message: discord.Message, client_user: discord.Clie
                 except discord.NotFound:
                     pass
         else:
-            # Fallback: if thread creation failed, send response in main channel
+            # Fallback: if thread creation completely failed, send response in main channel
             logger.warning("Thread creation failed for bot command, falling back to channel response")
             await _handle_bot_command_fallback(message, client_user, query, bot_client)
 
@@ -134,9 +146,16 @@ async def _handle_bot_command_fallback(message: discord.Message, client_user: di
                 logger.warning(f"Failed to get message context in fallback: {e}")
 
         response = await call_llm_api(query, message_context)
-        message_parts = await split_long_message(response)
+        # Always split if response is over 1900 chars to ensure it doesn't get cut off
+        if len(response) > 1900:
+            message_parts = await split_long_message(response, max_length=1900)
+        else:
+            message_parts = [response]
 
-        for part in message_parts:
+        for i, part in enumerate(message_parts, 1):
+            # Add continuation indicator if there are multiple parts
+            if len(message_parts) > 1 and i < len(message_parts):
+                part = part + "\n\n*(continued...)*"
             allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
             bot_response = await message.channel.send(part, allowed_mentions=allowed_mentions, suppress_embeds=True)
             await store_bot_response_db(bot_response, client_user, message.guild, message.channel, part)

@@ -21,14 +21,15 @@ def generate_discord_message_link(guild_id: str, channel_id: str, message_id: st
         # For DMs, use @me instead of guild_id
         return f"https://discord.com/channels/@me/{channel_id}/{message_id}"
 
-async def split_long_message(message, max_length=1950):
+async def split_long_message(message, max_length=1900):
     """
     Split a long message into multiple parts to avoid Discord's 2000 character limit
+    Enhanced to handle very long AI responses from increased token limits.
 
     Args:
         message (str): The message to split
         max_length (int): Maximum length of each part 
-                         (default: 1950 to leave room for part indicators)
+                         (default: 1900 to leave room for part indicators and safety margin)
 
     Returns:
         list: List of message parts
@@ -49,11 +50,23 @@ async def split_long_message(message, max_length=1950):
     paragraphs = message.split("\n\n")
 
     for paragraph in paragraphs:
+        # Special handling for bullet points and numbered lists
+        # Check if this is a list section (starts with -, *, •, or number)
+        is_list = paragraph.strip() and (paragraph.strip()[0] in '-*•' or paragraph.strip()[0].isdigit())
+        
         # If adding this paragraph would exceed effective_max_length, start a new part
         if len(current_part) + len(paragraph) + 2 > effective_max_length: # +2 for potential "\n\n"
             if current_part:
-                parts.append(current_part.strip())
-            current_part = paragraph
+                # Don't break in the middle of a list if possible
+                if is_list and len(paragraph) < effective_max_length // 2:
+                    # If it's a short list item, try to keep it with the previous content
+                    parts.append(current_part.strip())
+                    current_part = paragraph
+                else:
+                    parts.append(current_part.strip())
+                    current_part = paragraph
+            else:
+                current_part = paragraph
         else:
             if current_part:
                 current_part += "\n\n" + paragraph
