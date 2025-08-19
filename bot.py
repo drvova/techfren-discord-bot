@@ -19,6 +19,7 @@ from config_validator import validate_config # Import config validator
 from command_handler import handle_bot_command, handle_sum_day_command, handle_sum_hr_command # Import command handlers
 from firecrawl_handler import scrape_url_content # Import Firecrawl handler
 from apify_handler import scrape_twitter_content, is_twitter_url # Import Apify handler
+# Mermaid diagrams are now handled automatically in all LLM responses
 
 # Using message_content intent (requires enabling in the Discord Developer Portal)
 intents = discord.Intents.default()
@@ -422,9 +423,9 @@ async def on_message(message):
     # Process commands
     try:
         if is_sum_day_command:
-            await handle_sum_day_command(message, bot.user)
+            await handle_sum_day_command(message, bot.user, bot)
         elif is_sum_hr_command:
-            await handle_sum_hr_command(message, bot.user)
+            await handle_sum_hr_command(message, bot.user, bot)
     except Exception as e:
         logger.error(f"Error processing command in on_message: {e}", exc_info=True)
         # Optionally notify about the error in the channel if it's a user-facing command error
@@ -489,7 +490,7 @@ async def _handle_slash_command_wrapper(
         response_sender = create_response_sender(interaction)
         thread_manager = create_thread_manager(interaction)
 
-        await handle_summary_command(context, response_sender, thread_manager, hours=hours, bot_user=bot.user)
+        await handle_summary_command(context, response_sender, thread_manager, hours=hours, bot_user=bot.user, bot_client=bot)
 
     except Exception as e:
         logger.error(f"Error in {command_name} slash command: {e}", exc_info=True)

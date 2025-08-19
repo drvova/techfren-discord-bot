@@ -18,6 +18,7 @@ class DiscordFormatter:
     def format_llm_response(content: str, citations: Optional[List[str]] = None) -> str:
         """
         Format an LLM response with enhanced Discord markdown.
+        Preserves and enhances **bold**, ```code blocks```, and other Discord formatting.
         
         Args:
             content: The raw LLM response content
@@ -27,6 +28,12 @@ class DiscordFormatter:
             Formatted string with Discord markdown
         """
         formatted = content
+        
+        # First, preserve important Discord formatting patterns
+        formatted = DiscordFormatter._preserve_discord_formatting(formatted)
+        
+        # Handle any Markdown tables in the content
+        formatted = DiscordFormatter._convert_markdown_tables(formatted)
         
         # Replace Perplexity-style citations [1], [2] with clickable links if citations provided
         if citations:
@@ -46,11 +53,15 @@ class DiscordFormatter:
             (r'^-\s+(.+)$', r'• \1', re.MULTILINE),           # - item -> • item
             (r'^(\d+)\.\s+(.+)$', r'**\1.** \2', re.MULTILINE), # 1. item -> bold number
             
-            # Emphasis patterns already in the text
-            # (Leave existing **bold** and *italic* as is, they work in Discord)
+            # Bold and emphasis - Preserve and enhance
+            # Keep existing **bold** as is - Discord supports this natively
+            # Keep existing *italic* as is - Discord supports this natively
             
-            # Code - Ensure inline code uses backticks properly
-            (r'`([^`]+)`', r'`\1`', 0),  # Keep inline code as is
+            # Code formatting - Preserve both inline and block code
+            # Inline code backticks - keep as is (Discord native)
+            (r'`([^`\n]+)`', r'`\1`', 0),  # Preserve inline code
+            # Code blocks - keep as is (Discord native)
+            (r'```(\w*)\n([\s\S]*?)\n```', r'```\1\n\2\n```', 0),  # Preserve code blocks
             
             # Quotes - Convert quote markers to Discord quote blocks
             (r'^>\s+(.+)$', r'> \1', re.MULTILINE),  # > quote -> Discord quote
@@ -68,6 +79,43 @@ class DiscordFormatter:
                 formatted = re.sub(pattern, replacement, formatted)
         
         return formatted
+    
+    @staticmethod
+    def _preserve_discord_formatting(content: str) -> str:
+        """
+        Preserve and enhance Discord-specific formatting patterns.
+        
+        Args:
+            content: Raw content that may contain Discord formatting
+            
+        Returns:
+            Content with preserved and enhanced Discord formatting
+        """
+        # Protect code blocks from further processing
+        protected_blocks = []
+        
+        def protect_code_block(match):
+            placeholder = f"__PROTECTED_CODE_BLOCK_{len(protected_blocks)}__"
+            protected_blocks.append(match.group(0))
+            return placeholder
+        
+        # Protect multi-line code blocks first
+        content = re.sub(r'```[\s\S]*?```', protect_code_block, content)
+        
+        # Enhance existing bold formatting - make sure they're properly spaced
+        content = re.sub(r'\*\*([^*\n]+)\*\*', r'**\1**', content)
+        
+        # Enhance existing italic formatting
+        content = re.sub(r'\*([^*\n]+)\*', r'*\1*', content)
+        
+        # Enhance inline code formatting
+        content = re.sub(r'`([^`\n]+)`', r'`\1`', content)
+        
+        # Restore protected code blocks
+        for i, block in enumerate(protected_blocks):
+            content = content.replace(f"__PROTECTED_CODE_BLOCK_{i}__", block)
+        
+        return content
     
     @staticmethod
     def format_summary_response(summary: str, channel_name: str, hours: int) -> str:
@@ -132,8 +180,23 @@ class DiscordFormatter:
         
         # Add emphasis to usernames (already backticked)
         # Usernames are typically in backticks like `username`
-        # We'll make them bold as well
+        # We'll make them bold as well, but skip mermaid blocks
+        # First, protect mermaid blocks
+        mermaid_blocks = []
+        def protect_mermaid(match):
+            placeholder = f"__MERMAID_BLOCK_{len(mermaid_blocks)}__"
+            mermaid_blocks.append(match.group(0))
+            return placeholder
+        
+        # Temporarily replace mermaid blocks with placeholders
+        content = re.sub(r'```mermaid[\s\S]*?```', protect_mermaid, content)
+        
+        # Now apply bold to backticked content (usernames)
         content = re.sub(r'`([^`]+)`', r'**`\1`**', content)
+        
+        # Restore mermaid blocks
+        for i, block in enumerate(mermaid_blocks):
+            content = content.replace(f"__MERMAID_BLOCK_{i}__", block)
         
         # Format URLs to be more compact
         # Look for [text](url) patterns and ensure they're formatted nicely
@@ -432,3 +495,180 @@ class DiscordFormatter:
             table_lines.append(row_line)
         
         return "```\n" + "\n".join(table_lines) + "\n```"
+    
+    @staticmethod
+    def _convert_markdown_tables(content: str) -> str:
+        """
+        Convert Markdown tables to a Discord-friendly format.
+        Tables are converted to structured lists with clear headers.
+        
+        Args:
+            content: Content potentially containing Markdown tables
+            
+        Returns:
+            Content with tables converted to Discord-friendly format
+        """
+        # Pattern to match Markdown tables
+        # This matches tables with at least a header row and separator row
+        table_pattern = r'\|[^\n]+\|\n\|[-: ]+\|(?:\n\|[^\n]+\|)*'
+        
+        def convert_table(match):
+            table_text = match.group(0)
+            lines = table_text.strip().split('\n')
+            
+            if len(lines) < 2:
+                return table_text
+            
+            # Parse header row
+            header_row = lines[0]
+            headers = [cell.strip() for cell in header_row.split('|')[1:-1]]
+            
+            # Skip separator row (line 1)
+            # Parse data rows
+            data_rows = []
+            for line in lines[2:]:
+                if line.strip():
+                    cells = [cell.strip() for cell in line.split('|')[1:-1]]
+                    data_rows.append(cells)
+            
+            # Check if this looks like a comparison table or has many long cells
+            is_complex_table = any(len(cell) > 50 for row in data_rows for cell in row)
+            
+            if is_complex_table or len(headers) > 3:
+                # For complex tables, convert to a structured list format
+                result = []
+                result.append("📊 **Table:**\n")
+                
+                for i, row in enumerate(data_rows, 1):
+                    if len(data_rows) > 1:
+                        result.append(f"**{i}.** ")
+                    for j, header in enumerate(headers):
+                        if j < len(row):
+                            cell_content = row[j]
+                            # Handle links in cells
+                            cell_content = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](<\2>)', cell_content)
+                            result.append(f"**{header}:** {cell_content}\n")
+                    if i < len(data_rows):
+                        result.append("\n")  # Add spacing between rows
+                
+                return ''.join(result)
+            else:
+                # For simple tables, use code block format
+                # Calculate column widths
+                col_widths = [len(h) for h in headers]
+                for row in data_rows:
+                    for i, cell in enumerate(row):
+                        if i < len(col_widths):
+                            # Limit cell width for code blocks
+                            cell_text = cell[:40] + '...' if len(cell) > 40 else cell
+                            col_widths[i] = max(col_widths[i], len(cell_text))
+                
+                # Build formatted table
+                table_lines = []
+                
+                # Header
+                header_line = " | ".join([h.ljust(col_widths[i]) for i, h in enumerate(headers)])
+                table_lines.append(header_line)
+                
+                # Separator
+                separator = "-+-".join(["-" * w for w in col_widths])
+                table_lines.append(separator)
+                
+                # Rows
+                for row in data_rows:
+                    formatted_cells = []
+                    for i, cell in enumerate(row):
+                        if i < len(col_widths):
+                            # Truncate long cells
+                            cell_text = cell[:40] + '...' if len(cell) > 40 else cell
+                            formatted_cells.append(cell_text.ljust(col_widths[i]))
+                    row_line = " | ".join(formatted_cells)
+                    table_lines.append(row_line)
+                
+                return "```\n" + "\n".join(table_lines) + "\n```\n"
+        
+        # Replace all tables in the content
+        converted = re.sub(table_pattern, convert_table, content, flags=re.MULTILINE)
+        
+        # Also handle [Part X/Y] indicators for multi-part messages
+        converted = re.sub(r'\[Part \d+/\d+\]', '', converted)
+        
+        return converted
+    
+    @staticmethod
+    def format_bold(text: str) -> str:
+        """
+        Format text as bold using Discord markdown.
+        
+        Args:
+            text: Text to make bold
+            
+        Returns:
+            Bold formatted text
+        """
+        return f"**{text}**"
+    
+    @staticmethod
+    def format_italic(text: str) -> str:
+        """
+        Format text as italic using Discord markdown.
+        
+        Args:
+            text: Text to make italic
+            
+        Returns:
+            Italic formatted text
+        """
+        return f"*{text}*"
+    
+    @staticmethod
+    def format_bold_italic(text: str) -> str:
+        """
+        Format text as bold and italic using Discord markdown.
+        
+        Args:
+            text: Text to make bold and italic
+            
+        Returns:
+            Bold italic formatted text
+        """
+        return f"***{text}***"
+    
+    @staticmethod
+    def format_underline(text: str) -> str:
+        """
+        Format text as underlined using Discord markdown.
+        
+        Args:
+            text: Text to underline
+            
+        Returns:
+            Underlined formatted text
+        """
+        return f"__{text}__"
+    
+    @staticmethod
+    def format_strikethrough(text: str) -> str:
+        """
+        Format text as strikethrough using Discord markdown.
+        
+        Args:
+            text: Text to strikethrough
+            
+        Returns:
+            Strikethrough formatted text
+        """
+        return f"~~{text}~~"
+    
+    @staticmethod
+    def format_spoiler(text: str) -> str:
+        """
+        Format text as spoiler using Discord markdown.
+        
+        Args:
+            text: Text to hide as spoiler
+            
+        Returns:
+            Spoiler formatted text
+        """
+        return f"||{text}||"
