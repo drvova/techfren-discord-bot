@@ -19,6 +19,93 @@ from config_validator import validate_config # Import config validator
 from command_handler import handle_bot_command, handle_sum_day_command, handle_sum_hr_command # Import command handlers
 from firecrawl_handler import scrape_url_content # Import Firecrawl handler
 from apify_handler import scrape_twitter_content, is_twitter_url # Import Apify handler
+from gif_limiter import check_and_record_gif_post
+
+GIF_WARNING_DELETE_DELAY = 60  # seconds before deleting warning messages
+GIF_URL_PATTERN = re.compile(r"https?://\S+\.gif(?:\?\S*)?", re.IGNORECASE)
+GIFV_URL_PATTERN = re.compile(r"https?://\S+\.gifv(?:\?\S*)?", re.IGNORECASE)
+GIF_DOMAIN_KEYWORDS = (
+    "tenor.com",
+    "media.tenor.com",
+    "giphy.com",
+    "media.giphy.com",
+    "gfycat.com",
+    "redgifs.com",
+)
+
+
+def _format_gif_cooldown(seconds_remaining: int) -> str:
+    """Convert remaining seconds into a human readable string."""
+
+    seconds_remaining = max(int(seconds_remaining), 0)
+    minutes, seconds = divmod(seconds_remaining, 60)
+
+    parts = []
+    if minutes:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    if seconds or not parts:
+        parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
+
+    if len(parts) == 1:
+        return parts[0]
+    return " and ".join(parts)
+
+
+def message_contains_gif(message: discord.Message) -> bool:
+    """Determine whether a message contains a GIF attachment or link."""
+
+    # Check attachments first
+    for attachment in getattr(message, "attachments", []):
+        filename = (attachment.filename or "").lower()
+        content_type = (attachment.content_type or "").lower()
+
+        if filename.endswith(".gif"):
+            return True
+        if "gif" in content_type:
+            return True
+
+    content = message.content or ""
+    if GIF_URL_PATTERN.search(content) or GIFV_URL_PATTERN.search(content):
+        return True
+
+    lowered_content = content.lower()
+    if any(keyword in lowered_content for keyword in GIF_DOMAIN_KEYWORDS):
+        return True
+
+    # Check embeds for GIF indicators
+    for embed in getattr(message, "embeds", []):
+        if getattr(embed, "type", None) == "gifv":
+            return True
+
+        embed_url = (getattr(embed, "url", None) or "").lower()
+        if embed_url and (
+            GIF_URL_PATTERN.search(embed_url)
+            or GIFV_URL_PATTERN.search(embed_url)
+            or any(keyword in embed_url for keyword in GIF_DOMAIN_KEYWORDS)
+        ):
+            return True
+
+        image = getattr(embed, "image", None)
+        if image:
+            image_url = (getattr(image, "url", None) or "").lower()
+            if image_url and (
+                GIF_URL_PATTERN.search(image_url)
+                or GIFV_URL_PATTERN.search(image_url)
+                or any(keyword in image_url for keyword in GIF_DOMAIN_KEYWORDS)
+            ):
+                return True
+
+        thumbnail = getattr(embed, "thumbnail", None)
+        if thumbnail:
+            thumb_url = (getattr(thumbnail, "url", None) or "").lower()
+            if thumb_url and (
+                GIF_URL_PATTERN.search(thumb_url)
+                or GIFV_URL_PATTERN.search(thumb_url)
+                or any(keyword in thumb_url for keyword in GIF_DOMAIN_KEYWORDS)
+            ):
+                return True
+
+    return False
 
 # Using message_content intent (requires enabling in the Discord Developer Portal)
 intents = discord.Intents.default()
@@ -331,6 +418,74 @@ async def on_message(message):
     handled_by_links_dump = await handle_links_dump_channel(message)
     if handled_by_links_dump:
         return  # Message was handled (deleted), stop processing
+
+    # Enforce GIF posting limits for regular users
+    if not message.author.bot and message_contains_gif(message):
+        can_post_gif, seconds_remaining = await check_and_record_gif_post(
+            str(message.author.id), message.created_at
+        )
+
+        if not can_post_gif:
+            logger.info(
+                "User %s attempted to post a GIF but is rate limited", message.author.id
+            )
+
+            try:
+                await message.delete()
+                logger.debug(f"Deleted rate-limited GIF message {message.id}")
+            except discord.NotFound:
+                logger.info(f"GIF message {message.id} already deleted")
+            except discord.Forbidden:
+                logger.warning(
+                    f"Insufficient permissions to delete GIF message {message.id}"
+                )
+            except Exception as delete_error:
+                logger.error(
+                    f"Unexpected error deleting GIF message {message.id}: {delete_error}",
+                    exc_info=True,
+                )
+
+            wait_text = _format_gif_cooldown(seconds_remaining)
+            warning_message = (
+                f"{message.author.mention} You can only post one GIF per hour. "
+                f"Please wait {wait_text} before posting another GIF."
+            )
+
+            warning_msg = None
+            try:
+                warning_msg = await message.channel.send(warning_message)
+            except discord.Forbidden:
+                logger.warning(
+                    f"Insufficient permissions to send GIF warning in channel {message.channel.id}"
+                )
+            except Exception as send_error:
+                logger.error(
+                    f"Failed to send GIF warning message in channel {message.channel.id}: {send_error}",
+                    exc_info=True,
+                )
+
+            if warning_msg:
+                async def delete_warning_after_delay():
+                    await asyncio.sleep(GIF_WARNING_DELETE_DELAY)
+                    try:
+                        await warning_msg.delete()
+                    except discord.NotFound:
+                        logger.debug(
+                            f"GIF warning message {warning_msg.id} already deleted"
+                        )
+                    except discord.Forbidden:
+                        logger.warning(
+                            f"Insufficient permissions to delete GIF warning message {warning_msg.id}"
+                        )
+                    except Exception as warning_delete_error:
+                        logger.error(
+                            f"Failed to delete GIF warning message {warning_msg.id}: {warning_delete_error}",
+                            exc_info=True,
+                        )
+
+                asyncio.create_task(delete_warning_after_delay())
+
+            return
 
     # Log message details - safely handle DMs and different channel types
     guild_name = message.guild.name if message.guild else "DM"
