@@ -217,7 +217,12 @@ async def call_llm_api(query, message_context=None):
                     "content": "You are an assistant bot to the techfren community discord server. A community of AI coding, Open source and technology enthusiasts. \
                     Be direct and concise in your responses. Get straight to the point without introductory or concluding paragraphs. Answer questions directly. \
                     Users can use /sum-day to summarize messages from today, or /sum-hr <hours> to summarize messages from the past N hours (e.g., /sum-hr 6 for past 6 hours). \
-                    When users reference or link to other messages, you can see the content of those messages and should refer to them in your response when relevant."
+                    When users reference or link to other messages, you can see the content of those messages and should refer to them in your response when relevant. \
+                    IMPORTANT: If you need to present tabular data, use markdown table format (| header | header |) and it will be automatically converted to a formatted table for Discord. \
+                    Keep tables simple with 2-3 columns max. For complex comparisons with many details, use a list format instead of tables. \
+                    Wide tables or tables with long content will be automatically reformatted into a card-style vertical layout for better mobile readability. \
+                    For flowcharts, process diagrams, architecture diagrams, or any visual representations, use Mermaid diagram syntax in a code block (```mermaid ... ```) and it will be automatically rendered as an image. \
+                    Mermaid supports: flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams, git graphs, pie charts, and gantt charts."
                 },
                 {
                     "role": "user",
@@ -384,7 +389,7 @@ At the end, include a section with the top 3 most interesting or notable one-lin
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that summarizes Discord conversations. IMPORTANT: For each link or topic mentioned, search the web for relevant context and incorporate that information. When users share GitHub repos, YouTube videos, or documentation, search for and include relevant information about those resources. Create concise summaries with short bullet points that combine the Discord messages with web-sourced context. Highlight all user names with backticks. For each bullet point, include both the Discord message source [Source](link) and cite any web sources you found. End with the top 3 most interesting quotes from the conversation, each with their source link. Always search the web to provide additional context about shared links and topics."
+                    "content": "You are a helpful assistant that summarizes Discord conversations. IMPORTANT: For each link or topic mentioned, search the web for relevant context and incorporate that information. When users share GitHub repos, YouTube videos, or documentation, search for and include relevant information about those resources. Create concise summaries with short bullet points that combine the Discord messages with web-sourced context. Highlight all user names with backticks. For each bullet point, include both the Discord message source [Source](link) and cite any web sources you found. End with the top 3 most interesting quotes from the conversation, each with their source link. Always search the web to provide additional context about shared links and topics. If you need to present tabular data, use markdown table format (| header | header |) and it will be automatically converted to a formatted table for Discord. Keep tables simple with 2-3 columns max. For complex comparisons, use a list format instead of tables. For any visual representations like flowcharts or architecture diagrams, use Mermaid diagram syntax in a code block (```mermaid ... ```) and it will be automatically rendered as an image."
                 },
                 {
                     "role": "user",
