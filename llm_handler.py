@@ -235,20 +235,15 @@ async def call_llm_api(query, message_context=None):
 
         # Extract the response
         message = completion.choices[0].message.content
-        
+
         # Check if Perplexity returned citations
         citations = None
         if hasattr(completion, 'citations') and completion.citations:
             logger.info(f"Found {len(completion.citations)} citations from Perplexity")
             citations = completion.citations
-            
-            # If the message contains citation references but no sources section, add it
-            if "Sources:" not in message and any(f"[{i}]" in message for i in range(1, len(citations) + 1)):
-                message += "\n\n📚 **Sources:**\n"
-                for i, citation in enumerate(citations, 1):
-                    message += f"[{i}] <{citation}>\n"
-        
+
         # Apply Discord formatting enhancements
+        # The formatter will convert [1], [2] etc. into clickable hyperlinked footnotes
         formatted_message = DiscordFormatter.format_llm_response(message, citations)
         
         logger.info(f"LLM API response received successfully: {formatted_message[:50]}{'...' if len(formatted_message) > 50 else ''}")
@@ -402,20 +397,15 @@ At the end, include a section with the top 3 most interesting or notable one-lin
 
         # Extract the response
         summary = completion.choices[0].message.content
-        
+
         # Check if Perplexity returned citations
         citations = None
         if hasattr(completion, 'citations') and completion.citations:
             logger.info(f"Found {len(completion.citations)} citations from Perplexity for summary")
             citations = completion.citations
-            
-            # If the summary contains citation references but no sources section, add it
-            if "Sources:" not in summary and any(f"[{i}]" in summary for i in range(1, len(citations) + 1)):
-                summary += "\n\n📚 **Sources:**\n"
-                for i, citation in enumerate(citations, 1):
-                    summary += f"[{i}] <{citation}>\n"
-        
+
         # Apply Discord formatting enhancements to the summary
+        # The formatter will convert [1], [2] etc. into clickable hyperlinked footnotes
         formatted_summary = DiscordFormatter.format_llm_response(summary, citations)
         
         # Enhance specific sections in the summary
