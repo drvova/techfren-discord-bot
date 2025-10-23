@@ -221,8 +221,7 @@ async def call_llm_api(query, message_context=None):
                     IMPORTANT: If you need to present tabular data, use markdown table format (| header | header |) and it will be automatically converted to a formatted table for Discord. \
                     Keep tables simple with 2-3 columns max. For complex comparisons with many details, use a list format instead of tables. \
                     Wide tables or tables with long content will be automatically reformatted into a card-style vertical layout for better mobile readability. \
-                    For flowcharts, process diagrams, architecture diagrams, or any visual representations, use Mermaid diagram syntax in a code block (```mermaid ... ```) and it will be automatically rendered as an image. \
-                    Mermaid supports: flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams, git graphs, pie charts, and gantt charts."
+                    CRITICAL:Never wrap large parts of your response in a markdown code block (```). Only use code blocks for specific code snippets. Your response text should be plain text with inline formatting."
                 },
                 {
                     "role": "user",
@@ -235,20 +234,15 @@ async def call_llm_api(query, message_context=None):
 
         # Extract the response
         message = completion.choices[0].message.content
-        
+
         # Check if Perplexity returned citations
         citations = None
         if hasattr(completion, 'citations') and completion.citations:
             logger.info(f"Found {len(completion.citations)} citations from Perplexity")
             citations = completion.citations
-            
-            # If the message contains citation references but no sources section, add it
-            if "Sources:" not in message and any(f"[{i}]" in message for i in range(1, len(citations) + 1)):
-                message += "\n\n📚 **Sources:**\n"
-                for i, citation in enumerate(citations, 1):
-                    message += f"[{i}] <{citation}>\n"
-        
+
         # Apply Discord formatting enhancements
+        # The formatter will convert [1], [2] etc. into clickable hyperlinked footnotes
         formatted_message = DiscordFormatter.format_llm_response(message, citations)
         
         logger.info(f"LLM API response received successfully: {formatted_message[:50]}{'...' if len(formatted_message) > 50 else ''}")
@@ -389,7 +383,7 @@ At the end, include a section with the top 3 most interesting or notable one-lin
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that summarizes Discord conversations. IMPORTANT: For each link or topic mentioned, search the web for relevant context and incorporate that information. When users share GitHub repos, YouTube videos, or documentation, search for and include relevant information about those resources. Create concise summaries with short bullet points that combine the Discord messages with web-sourced context. Highlight all user names with backticks. For each bullet point, include both the Discord message source [Source](link) and cite any web sources you found. End with the top 3 most interesting quotes from the conversation, each with their source link. Always search the web to provide additional context about shared links and topics. If you need to present tabular data, use markdown table format (| header | header |) and it will be automatically converted to a formatted table for Discord. Keep tables simple with 2-3 columns max. For complex comparisons, use a list format instead of tables. For any visual representations like flowcharts or architecture diagrams, use Mermaid diagram syntax in a code block (```mermaid ... ```) and it will be automatically rendered as an image."
+                    "content": "You are a helpful assistant that summarizes Discord conversations. IMPORTANT: For each link or topic mentioned, search the web for relevant context and incorporate that information. When users share GitHub repos, YouTube videos, or documentation, search for and include relevant information about those resources. Create concise summaries with short bullet points that combine the Discord messages with web-sourced context. Highlight all user names with backticks. For each bullet point, include both the Discord message source [Source](link) and cite any web sources you found. End with the top 3 most interesting quotes from the conversation, each with their source link. Always search the web to provide additional context about shared links and topics. If you need to present tabular data, use markdown table format (| header | header |) and it will be automatically converted to a formatted table for Discord. Keep tables simple with 2-3 columns max. For complex comparisons, use a list format instead of tables. CRITICAL: Never wrap large parts of your response in a markdown code block (```). Only use code blocks for specific code snippets. Your response text should be plain text with inline formatting. Bold, h2, etc is good"
                 },
                 {
                     "role": "user",
@@ -402,20 +396,15 @@ At the end, include a section with the top 3 most interesting or notable one-lin
 
         # Extract the response
         summary = completion.choices[0].message.content
-        
+
         # Check if Perplexity returned citations
         citations = None
         if hasattr(completion, 'citations') and completion.citations:
             logger.info(f"Found {len(completion.citations)} citations from Perplexity for summary")
             citations = completion.citations
-            
-            # If the summary contains citation references but no sources section, add it
-            if "Sources:" not in summary and any(f"[{i}]" in summary for i in range(1, len(citations) + 1)):
-                summary += "\n\n📚 **Sources:**\n"
-                for i, citation in enumerate(citations, 1):
-                    summary += f"[{i}] <{citation}>\n"
-        
+
         # Apply Discord formatting enhancements to the summary
+        # The formatter will convert [1], [2] etc. into clickable hyperlinked footnotes
         formatted_summary = DiscordFormatter.format_llm_response(summary, citations)
         
         # Enhance specific sections in the summary

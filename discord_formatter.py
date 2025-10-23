@@ -8,7 +8,6 @@ including bold, italics, code blocks, quotes, embeds, and more.
 import re
 from typing import List, Optional, Dict, Any
 import logging
-import base64
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +27,6 @@ class DiscordFormatter:
             Formatted string with Discord markdown
         """
         formatted = content
-
-        # Convert Mermaid diagrams to mermaid.ink URLs before other formatting
-        formatted = DiscordFormatter._convert_mermaid_to_urls(formatted)
 
         # Convert markdown tables to ASCII tables before other formatting
         formatted = DiscordFormatter._convert_markdown_tables_to_ascii(formatted)
@@ -458,38 +454,6 @@ class DiscordFormatter:
         return "```\n" + "\n".join(output_lines) + "\n```"
 
     @staticmethod
-    def _convert_mermaid_to_urls(content: str) -> str:
-        """
-        Convert Mermaid diagram code blocks to mermaid.ink URLs.
-
-        Args:
-            content: Content that may contain Mermaid code blocks
-
-        Returns:
-            Content with Mermaid code blocks converted to mermaid.ink URLs
-        """
-        # Pattern to match ```mermaid ... ``` code blocks
-        mermaid_pattern = r'```mermaid\n(.*?)\n```'
-
-        def replace_mermaid(match):
-            mermaid_code = match.group(1).strip()
-            try:
-                # Create the mermaid.ink URL
-                url = DiscordFormatter.create_mermaid_image_url(mermaid_code, theme="default")
-                if url:
-                    # Return the URL as a clickable link
-                    return f"[📊 View Diagram]({url})"
-                else:
-                    # If URL creation failed, return the original code block
-                    return match.group(0)
-            except Exception as e:
-                logger.warning(f"Failed to convert Mermaid diagram to URL: {e}")
-                return match.group(0)
-
-        # Replace all Mermaid code blocks with URLs
-        return re.sub(mermaid_pattern, replace_mermaid, content, flags=re.DOTALL)
-
-    @staticmethod
     def _convert_markdown_tables_to_ascii(content: str) -> str:
         """
         Convert markdown tables in content to ASCII tables.
@@ -538,41 +502,3 @@ class DiscordFormatter:
         # Replace all markdown tables with ASCII tables
         return re.sub(table_pattern, replace_table, content, flags=re.MULTILINE)
 
-    @staticmethod
-    def create_mermaid_image_url(mermaid_code: str, theme: str = "default") -> str:
-        """
-        Create a mermaid.ink URL for rendering Mermaid diagrams as images.
-
-        Args:
-            mermaid_code: The Mermaid diagram code
-            theme: Theme to use (default, dark, forest, neutral)
-
-        Returns:
-            URL to the rendered Mermaid diagram image
-        """
-        try:
-            import json
-
-            # Create the configuration object
-            config = {
-                'code': mermaid_code
-            }
-
-            # Add theme if not default
-            if theme and theme != "default":
-                config['mermaid'] = {'theme': theme}
-
-            # Encode to base64
-            encoded = base64.b64encode(json.dumps(config).encode('ascii')).decode('ascii')
-
-            # Create the URL
-            url = f"https://mermaid.ink/img/{encoded}"
-
-            # Add background color for dark theme
-            if theme == "dark":
-                url += "?bgColor=333"
-
-            return url
-        except Exception as e:
-            logger.error(f"Failed to create Mermaid image URL: {e}")
-            return ""
