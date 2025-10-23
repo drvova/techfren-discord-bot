@@ -221,7 +221,7 @@ async def call_llm_api(query, message_context=None):
                     IMPORTANT: If you need to present tabular data, use markdown table format (| header | header |) and it will be automatically converted to a formatted table for Discord. \
                     Keep tables simple with 2-3 columns max. For complex comparisons with many details, use a list format instead of tables. \
                     Wide tables or tables with long content will be automatically reformatted into a card-style vertical layout for better mobile readability. \
-                    CRITICAL: Never wrap your entire response in a markdown code block (```). Only use code blocks for specific code snippets. Your response text should be plain text with inline formatting."
+                    CRITICAL:Never wrap large parts of your response in a markdown code block (```). Only use code blocks for specific code snippets. Your response text should be plain text with inline formatting."
                 },
                 {
                     "role": "user",
