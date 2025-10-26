@@ -18,11 +18,12 @@ token = os.getenv('DISCORD_BOT_TOKEN')
 if not token:
     raise ValueError("DISCORD_BOT_TOKEN environment variable is required")
 
-# Perplexity API Key (required)
-# Environment variable: PERPLEXITY_API_KEY
-perplexity = os.getenv('PERPLEXITY_API_KEY')
+# LLM API Key (required)
+# Supports both old (PERPLEXITY_API_KEY) and new (LLM_API_KEY) variable names
+# Environment variables: LLM_API_KEY or PERPLEXITY_API_KEY (backward compatibility)
+perplexity = os.getenv('LLM_API_KEY') or os.getenv('PERPLEXITY_API_KEY')
 if not perplexity:
-    raise ValueError("PERPLEXITY_API_KEY environment variable is required")
+    raise ValueError("LLM_API_KEY or PERPLEXITY_API_KEY environment variable is required")
 
 # LLM Model Configuration (optional)
 # Environment variable: LLM_MODEL
@@ -35,11 +36,14 @@ llm_model = os.getenv('LLM_MODEL', 'sonar')
 rate_limit_seconds = int(os.getenv('RATE_LIMIT_SECONDS', '10'))
 max_requests_per_minute = int(os.getenv('MAX_REQUESTS_PER_MINUTE', '6'))
 
-# Firecrawl API Key (required for link scraping)
+# Firecrawl API Key (optional - required for link scraping)
 # Environment variable: FIRECRAWL_API_KEY
+# If not set, link scraping features will be disabled
 firecrawl_api_key = os.getenv('FIRECRAWL_API_KEY')
-if not firecrawl_api_key:
-    raise ValueError("FIRECRAWL_API_KEY environment variable is required")
+if not firecrawl_api_key or firecrawl_api_key == 'YOUR_FIRECRAWL_API_KEY':
+    import warnings
+    warnings.warn("FIRECRAWL_API_KEY not configured - link scraping features will be disabled")
+    firecrawl_api_key = None
 
 # Apify API Token (optional, for x.com/twitter.com link scraping)
 # Environment variable: APIFY_API_TOKEN
@@ -59,9 +63,10 @@ reports_channel_id = os.getenv('REPORTS_CHANNEL_ID')
 links_dump_channel_id = os.getenv('LINKS_DUMP_CHANNEL_ID')
 
 # LLM API Configuration (optional)
-# Environment variable: PERPLEXITY_BASE_URL
-# Base URL for Perplexity API (or compatible API)
-perplexity_base_url = os.getenv('PERPLEXITY_BASE_URL', 'https://api.perplexity.ai')
+# Supports both old (PERPLEXITY_BASE_URL) and new (LLM_BASE_URL) variable names
+# Environment variables: LLM_BASE_URL or PERPLEXITY_BASE_URL (backward compatibility)
+# Base URL for LLM API (OpenAI-compatible endpoint)
+perplexity_base_url = os.getenv('LLM_BASE_URL') or os.getenv('PERPLEXITY_BASE_URL', 'https://api.perplexity.ai')
 
 # HTTP Headers Configuration (optional)
 # Environment variables: HTTP_REFERER, X_TITLE

@@ -8,6 +8,7 @@ import re
 from message_utils import generate_discord_message_link
 from database import get_scraped_content_by_url
 from discord_formatter import DiscordFormatter
+from image_handler import get_all_images_from_context
 
 def extract_urls_from_text(text: str) -> list[str]:
     """
@@ -117,6 +118,9 @@ async def call_llm_api(query, message_context=None):
         # Get the model from config or use default (Perplexity models)
         model = getattr(config, 'llm_model', "sonar")
         
+        # Check for images in message context
+        image_data_urls = await get_all_images_from_context(message_context) if message_context else []
+        
         # Prepare the user content with message context if available
         user_content = query
         if message_context:
@@ -204,6 +208,28 @@ async def call_llm_api(query, message_context=None):
                     user_content = f"{scraped_content_text}\n\n**User's Question/Request:**\n{query}"
                 logger.debug(f"Added scraped content to LLM prompt: {len(scraped_content_parts)} URL(s) with content")
 
+        # Prepare user message content (text + images if available)
+        if image_data_urls:
+            # Vision mode: construct message with both text and images
+            user_message_content = [
+                {
+                    "type": "text",
+                    "text": user_content
+                }
+            ]
+            # Add all images to the message
+            for image_url in image_data_urls:
+                user_message_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image_url
+                    }
+                })
+            logger.info(f"Vision mode enabled: sending {len(image_data_urls)} image(s) to LLM")
+        else:
+            # Text-only mode
+            user_message_content = user_content
+
         # Make the API request
         completion = await openai_client.chat.completions.create(
             extra_headers={
@@ -218,6 +244,7 @@ async def call_llm_api(query, message_context=None):
                     Be direct and concise in your responses. Get straight to the point without introductory or concluding paragraphs. Answer questions directly. \
                     Users can use /sum-day to summarize messages from today, or /sum-hr <hours> to summarize messages from the past N hours (e.g., /sum-hr 6 for past 6 hours). \
                     When users reference or link to other messages, you can see the content of those messages and should refer to them in your response when relevant. \
+                    When users send images, analyze them carefully and provide relevant information about what you see. \
                     IMPORTANT: If you need to present tabular data, use markdown table format (| header | header |) and it will be automatically converted to a formatted table for Discord. \
                     Keep tables simple with 2-3 columns max. For complex comparisons with many details, use a list format instead of tables. \
                     Wide tables or tables with long content will be automatically reformatted into a card-style vertical layout for better mobile readability. \
@@ -225,7 +252,7 @@ async def call_llm_api(query, message_context=None):
                 },
                 {
                     "role": "user",
-                    "content": user_content
+                    "content": user_message_content
                 }
             ],
             max_tokens=1000,  # Increased for better responses

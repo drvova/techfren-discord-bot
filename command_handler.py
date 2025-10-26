@@ -48,12 +48,13 @@ async def handle_bot_command(message: discord.Message, client_user: discord.Clie
             processing_msg = await thread_sender.send("Processing your request, please wait...")
 
             try:
-                # Get message context (referenced messages and linked messages)
+                # Get message context (original message, referenced messages, and linked messages)
+                # Always get context to include the original message (which may have image attachments)
                 message_context = None
-                if bot_client and (message.reference or 'discord.com/channels/' in message.content):
+                if bot_client:
                     try:
                         message_context = await get_message_context(message, bot_client)
-                        logger.debug(f"Retrieved message context: referenced={message_context['referenced_message'] is not None}, linked_count={len(message_context['linked_messages'])}")
+                        logger.debug(f"Retrieved message context: original_message={message_context['original_message'] is not None}, referenced={message_context['referenced_message'] is not None}, linked_count={len(message_context['linked_messages'])}")
                     except Exception as e:
                         logger.warning(f"Failed to get message context: {e}")
 

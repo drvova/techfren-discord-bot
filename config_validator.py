@@ -32,12 +32,10 @@ def validate_config(config_module):
         # This is a warning.
         logger.warning("Perplexity API key in config.py appears to be invalid (too short or not a string).")
         
-    # Check Firecrawl API key
+    # Check Firecrawl API key (optional - required for link scraping)
     if not hasattr(config_module, 'firecrawl_api_key') or not config_module.firecrawl_api_key:
-        logger.error("Firecrawl API key not found in config.py or is empty")
-        raise ValueError("Firecrawl API key is missing or empty in config.py")
-
-    if not isinstance(config_module.firecrawl_api_key, str) or len(config_module.firecrawl_api_key) < 10:
+        logger.warning("Firecrawl API key not found in config.py or is empty - link scraping features will be disabled")
+    elif not isinstance(config_module.firecrawl_api_key, str) or len(config_module.firecrawl_api_key) < 10:
         # This is a warning.
         logger.warning("Firecrawl API key in config.py appears to be invalid (too short or not a string).")
         
