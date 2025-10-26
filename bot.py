@@ -21,7 +21,7 @@ from firecrawl_handler import scrape_url_content # Import Firecrawl handler
 from apify_handler import scrape_twitter_content, is_twitter_url # Import Apify handler
 from gif_limiter import check_and_record_gif_post
 
-GIF_WARNING_DELETE_DELAY = 60  # seconds before deleting warning messages
+GIF_WARNING_DELETE_DELAY = 30  # seconds before deleting warning messages
 GIF_URL_PATTERN = re.compile(r"https?://\S+\.gif(?:\?\S*)?", re.IGNORECASE)
 GIFV_URL_PATTERN = re.compile(r"https?://\S+\.gifv(?:\?\S*)?", re.IGNORECASE)
 GIF_DOMAIN_KEYWORDS = (
@@ -32,6 +32,9 @@ GIF_DOMAIN_KEYWORDS = (
     "gfycat.com",
     "redgifs.com",
 )
+
+# Track users who have been warned about GIF limits (user_id -> expiry_time)
+_gif_warned_users = {}
 
 
 def _format_gif_cooldown(seconds_remaining: int) -> str:
@@ -426,10 +429,12 @@ async def on_message(message):
         )
 
         if not can_post_gif:
+            user_id = str(message.author.id)
             logger.info(
                 "User %s attempted to post a GIF but is rate limited", message.author.id
             )
 
+            # Delete the GIF message
             try:
                 await message.delete()
                 logger.debug(f"Deleted rate-limited GIF message {message.id}")
@@ -445,45 +450,62 @@ async def on_message(message):
                     exc_info=True,
                 )
 
-            wait_text = _format_gif_cooldown(seconds_remaining)
-            warning_message = (
-                f"{message.author.mention} You can only post one GIF per hour. "
-                f"Please wait {wait_text} before posting another GIF."
-            )
+            # Check if user has already been warned recently
+            now = datetime.now(timezone.utc)
+            user_warning_expiry = _gif_warned_users.get(user_id)
 
-            warning_msg = None
-            try:
-                warning_msg = await message.channel.send(warning_message)
-            except discord.Forbidden:
-                logger.warning(
-                    f"Insufficient permissions to send GIF warning in channel {message.channel.id}"
+            # Clean up expired warnings
+            expired_users = [uid for uid, expiry in _gif_warned_users.items() if expiry <= now]
+            for uid in expired_users:
+                del _gif_warned_users[uid]
+
+            # Only send warning if user hasn't been warned recently
+            if user_warning_expiry is None or user_warning_expiry <= now:
+                wait_text = _format_gif_cooldown(seconds_remaining)
+                warning_message = (
+                    f"{message.author.mention} You can only post one GIF every 15 minutes. "
+                    f"Please wait {wait_text} before posting another GIF. "
+                    f"This message will be deleted in 30 seconds."
                 )
-            except Exception as send_error:
-                logger.error(
-                    f"Failed to send GIF warning message in channel {message.channel.id}: {send_error}",
-                    exc_info=True,
-                )
 
-            if warning_msg:
-                async def delete_warning_after_delay():
-                    await asyncio.sleep(GIF_WARNING_DELETE_DELAY)
-                    try:
-                        await warning_msg.delete()
-                    except discord.NotFound:
-                        logger.debug(
-                            f"GIF warning message {warning_msg.id} already deleted"
-                        )
-                    except discord.Forbidden:
-                        logger.warning(
-                            f"Insufficient permissions to delete GIF warning message {warning_msg.id}"
-                        )
-                    except Exception as warning_delete_error:
-                        logger.error(
-                            f"Failed to delete GIF warning message {warning_msg.id}: {warning_delete_error}",
-                            exc_info=True,
-                        )
+                warning_msg = None
+                try:
+                    warning_msg = await message.channel.send(warning_message)
+                    # Mark user as warned for the next 15 minutes
+                    _gif_warned_users[user_id] = now + timedelta(minutes=15)
+                    logger.debug(f"User {user_id} warned about GIF limit, will suppress warnings until {_gif_warned_users[user_id]}")
+                except discord.Forbidden:
+                    logger.warning(
+                        f"Insufficient permissions to send GIF warning in channel {message.channel.id}"
+                    )
+                except Exception as send_error:
+                    logger.error(
+                        f"Failed to send GIF warning message in channel {message.channel.id}: {send_error}",
+                        exc_info=True,
+                    )
 
-                asyncio.create_task(delete_warning_after_delay())
+                if warning_msg:
+                    async def delete_warning_after_delay():
+                        await asyncio.sleep(GIF_WARNING_DELETE_DELAY)
+                        try:
+                            await warning_msg.delete()
+                        except discord.NotFound:
+                            logger.debug(
+                                f"GIF warning message {warning_msg.id} already deleted"
+                            )
+                        except discord.Forbidden:
+                            logger.warning(
+                                f"Insufficient permissions to delete GIF warning message {warning_msg.id}"
+                            )
+                        except Exception as warning_delete_error:
+                            logger.error(
+                                f"Failed to delete GIF warning message {warning_msg.id}: {warning_delete_error}",
+                                exc_info=True,
+                            )
+
+                    asyncio.create_task(delete_warning_after_delay())
+            else:
+                logger.debug(f"User {user_id} already warned, silently deleting GIF without additional warning")
 
             return
 
