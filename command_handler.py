@@ -70,10 +70,7 @@ async def handle_bot_command(message: discord.Message, client_user: discord.Clie
                     message_parts = [response]
 
                 # Send all response parts in the thread
-                for i, part in enumerate(message_parts, 1):
-                    # Add continuation indicator if there are multiple parts
-                    if len(message_parts) > 1 and i < len(message_parts):
-                        part = part + "\n\n*(continued...)*"
+                for part in message_parts:
                     bot_response = await thread_sender.send(part)
                     if bot_response:
                         await store_bot_response_db(bot_response, client_user, message.guild, thread, part)
@@ -152,10 +149,7 @@ async def _handle_bot_command_fallback(message: discord.Message, client_user: di
         else:
             message_parts = [response]
 
-        for i, part in enumerate(message_parts, 1):
-            # Add continuation indicator if there are multiple parts
-            if len(message_parts) > 1 and i < len(message_parts):
-                part = part + "\n\n*(continued...)*"
+        for part in message_parts:
             allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
             bot_response = await message.channel.send(part, allowed_mentions=allowed_mentions, suppress_embeds=True)
             await store_bot_response_db(bot_response, client_user, message.guild, message.channel, part)

@@ -99,11 +99,8 @@ async def split_long_message(message, max_length=1900):
     if current_part:
         parts.append(current_part.strip())
 
-    # Add part indicators only if there are multiple parts
-    if len(parts) > 1:
-        for i in range(len(parts)):
-            parts[i] = f"[Part {i+1}/{len(parts)}]\n{parts[i]}"
-    elif not parts and message: # Handle case where original message was <= max_length but split logic ran
+    # Return parts without pagination indicators
+    if not parts and message: # Handle case where original message was <= max_length but split logic ran
         return [message]
 
     return parts

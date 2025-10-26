@@ -18,55 +18,58 @@ class DiscordFormatter:
     def format_llm_response(content: str, citations: Optional[List[str]] = None) -> str:
         """
         Format an LLM response with enhanced Discord markdown.
-        
+
         Args:
             content: The raw LLM response content
             citations: Optional list of citation URLs
-            
+
         Returns:
             Formatted string with Discord markdown
         """
         formatted = content
-        
+
+        # Convert markdown tables to ASCII tables before other formatting
+        formatted = DiscordFormatter._convert_markdown_tables_to_ascii(formatted)
+
         # Replace Perplexity-style citations [1], [2] with clickable links if citations provided
         if citations:
             for i, url in enumerate(citations, 1):
                 # Make citation numbers into clickable superscript-like links
                 formatted = formatted.replace(f"[{i}]", f"[`[{i}]`]({url})")
-        
+
         # Enhanced formatting patterns
         formatting_rules = [
             # Headers - Convert markdown headers to Discord formatting
             (r'^#{1}\s+(.+)$', r'__**\1**__', re.MULTILINE),  # # Header -> bold underline
             (r'^#{2}\s+(.+)$', r'**\1**', re.MULTILINE),      # ## Header -> bold
             (r'^#{3,}\s+(.+)$', r'__\1__', re.MULTILINE),     # ### Header -> underline
-            
+
             # Lists - Enhance bullet points and numbered lists
             (r'^\*\s+(.+)$', r'• \1', re.MULTILINE),          # * item -> • item
             (r'^-\s+(.+)$', r'• \1', re.MULTILINE),           # - item -> • item
             (r'^(\d+)\.\s+(.+)$', r'**\1.** \2', re.MULTILINE), # 1. item -> bold number
-            
+
             # Emphasis patterns already in the text
             # (Leave existing **bold** and *italic* as is, they work in Discord)
-            
+
             # Code - Ensure inline code uses backticks properly
             (r'`([^`]+)`', r'`\1`', 0),  # Keep inline code as is
-            
+
             # Quotes - Convert quote markers to Discord quote blocks
             (r'^>\s+(.+)$', r'> \1', re.MULTILINE),  # > quote -> Discord quote
-            
+
             # Horizontal rules
             (r'^---+$', r'━━━━━━━━━━━━━━━', re.MULTILINE),
             (r'^\*\*\*+$', r'━━━━━━━━━━━━━━━', re.MULTILINE),
         ]
-        
+
         # Apply formatting rules
         for pattern, replacement, flags in formatting_rules:
             if flags:
                 formatted = re.sub(pattern, replacement, formatted, flags=flags)
             else:
                 formatted = re.sub(pattern, replacement, formatted)
-        
+
         return formatted
     
     @staticmethod
@@ -399,36 +402,103 @@ class DiscordFormatter:
     @staticmethod
     def format_table(headers: List[str], rows: List[List[str]]) -> str:
         """
-        Format a simple table using Discord monospace.
-        
+        Format a table using simple key-value pairs (mobile-friendly).
+        Works well on all screen sizes without wrapping issues.
+
         Args:
             headers: List of header strings
             rows: List of row data
-            
+
         Returns:
             Formatted table in code block
         """
-        # Calculate column widths
-        col_widths = [len(h) for h in headers]
+        # For tables with many columns or long content, use key-value format
+        num_cols = len(headers)
+        max_cell_length = max([len(str(h)) for h in headers] +
+                              [len(str(cell)) for row in rows for cell in row])
+
+        # Use key-value format for better mobile compatibility
+        if num_cols > 2 or max_cell_length > 30:
+            return DiscordFormatter._format_table_keyvalue(headers, rows)
+
+        # Simple 2-column table - use pipe format
+        output_lines = []
         for row in rows:
-            for i, cell in enumerate(row):
-                if i < len(col_widths):
-                    col_widths[i] = max(col_widths[i], len(str(cell)))
-        
-        # Build table
-        table_lines = []
-        
-        # Header
-        header_line = " | ".join([h.ljust(col_widths[i]) for i, h in enumerate(headers)])
-        table_lines.append(header_line)
-        
-        # Separator
-        separator = "-+-".join(["-" * w for w in col_widths])
-        table_lines.append(separator)
-        
-        # Rows
-        for row in rows:
-            row_line = " | ".join([str(cell).ljust(col_widths[i]) for i, cell in enumerate(row)])
-            table_lines.append(row_line)
-        
-        return "```\n" + "\n".join(table_lines) + "\n```"
+            for header, cell in zip(headers, row):
+                output_lines.append(f"{header}: {cell}")
+            output_lines.append("")  # Blank line between rows
+
+        return "```\n" + "\n".join(output_lines).strip() + "\n```"
+
+    @staticmethod
+    def _format_table_keyvalue(headers: List[str], rows: List[List[str]]) -> str:
+        """
+        Format a table as key-value pairs (mobile-friendly, no wrapping issues).
+
+        Args:
+            headers: List of header strings
+            rows: List of row data
+
+        Returns:
+            Formatted table in code block
+        """
+        output_lines = []
+
+        for idx, row in enumerate(rows, 1):
+            if idx > 1:
+                output_lines.append("")  # Blank line between entries
+
+            for header, cell in zip(headers, row):
+                output_lines.append(f"{header}: {cell}")
+
+        return "```\n" + "\n".join(output_lines) + "\n```"
+
+    @staticmethod
+    def _convert_markdown_tables_to_ascii(content: str) -> str:
+        """
+        Convert markdown tables in content to ASCII tables.
+
+        Args:
+            content: Content that may contain markdown tables
+
+        Returns:
+            Content with markdown tables converted to ASCII tables
+        """
+        # Pattern to match markdown tables
+        # Matches: | header | header |
+        #          |--------|--------|
+        #          | cell   | cell   |
+        table_pattern = r'(\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n?)+)'
+
+        def replace_table(match):
+            table_text = match.group(1)
+            try:
+                # Parse the markdown table
+                lines = [line.strip() for line in table_text.strip().split('\n')]
+                if len(lines) < 3:  # Need at least header, separator, and one row
+                    return table_text
+
+                # Extract headers
+                header_line = lines[0]
+                headers = [cell.strip() for cell in header_line.split('|')[1:-1]]
+
+                # Extract rows (skip separator line at index 1)
+                rows = []
+                for line in lines[2:]:
+                    if line.strip():
+                        cells = [cell.strip() for cell in line.split('|')[1:-1]]
+                        if cells:  # Only add non-empty rows
+                            rows.append(cells)
+
+                # Format as ASCII table
+                if headers and rows:
+                    return DiscordFormatter.format_table(headers, rows)
+                else:
+                    return table_text
+            except Exception as e:
+                logger.warning(f"Failed to convert markdown table to ASCII: {e}")
+                return table_text
+
+        # Replace all markdown tables with ASCII tables
+        return re.sub(table_pattern, replace_table, content, flags=re.MULTILINE)
+
