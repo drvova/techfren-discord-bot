@@ -18,12 +18,11 @@ token = os.getenv('DISCORD_BOT_TOKEN')
 if not token:
     raise ValueError("DISCORD_BOT_TOKEN environment variable is required")
 
-# LLM API Key (required)
-# Supports both old (PERPLEXITY_API_KEY) and new (LLM_API_KEY) variable names
-# Environment variables: LLM_API_KEY or PERPLEXITY_API_KEY (backward compatibility)
-perplexity = os.getenv('LLM_API_KEY') or os.getenv('PERPLEXITY_API_KEY')
+# Perplexity API Key (required)
+# Environment variable: PERPLEXITY_API_KEY
+perplexity = os.getenv('PERPLEXITY_API_KEY')
 if not perplexity:
-    raise ValueError("LLM_API_KEY or PERPLEXITY_API_KEY environment variable is required")
+    raise ValueError("PERPLEXITY_API_KEY environment variable is required")
 
 # LLM Model Configuration (optional)
 # Environment variable: LLM_MODEL
@@ -62,11 +61,10 @@ reports_channel_id = os.getenv('REPORTS_CHANNEL_ID')
 # Channel where only links are allowed - text messages will be auto-deleted
 links_dump_channel_id = os.getenv('LINKS_DUMP_CHANNEL_ID')
 
-# LLM API Configuration (optional)
-# Supports both old (PERPLEXITY_BASE_URL) and new (LLM_BASE_URL) variable names
-# Environment variables: LLM_BASE_URL or PERPLEXITY_BASE_URL (backward compatibility)
-# Base URL for LLM API (OpenAI-compatible endpoint)
-perplexity_base_url = os.getenv('LLM_BASE_URL') or os.getenv('PERPLEXITY_BASE_URL', 'https://api.perplexity.ai')
+# Perplexity API Configuration (optional)
+# Environment variable: PERPLEXITY_BASE_URL
+# Base URL for Perplexity API (OpenAI-compatible endpoint)
+perplexity_base_url = os.getenv('PERPLEXITY_BASE_URL', 'https://api.perplexity.ai')
 
 # HTTP Headers Configuration (optional)
 # Environment variables: HTTP_REFERER, X_TITLE
