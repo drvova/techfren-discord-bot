@@ -19,6 +19,7 @@ A simple Discord bot built with discord.py.
 - Mention-based queries (e.g., `@botname <query>`) allow you to interact with the bot in any channel, with responses posted in threads attached to your original message. Mentions can appear anywhere in the message (beginning, middle, or end)
 - `/sum-day` command works in any channel
 - Stores all messages in a SQLite database for logging and analysis
+- **Vision Support**: Bot can analyze images attached to messages, referenced messages, or linked Discord messages. Simply mention the bot with your question and attach an image or reply to a message containing an image. Requires a vision-capable LLM model (e.g., GPT-4V, Claude 3 with vision, Perplexity Sonar with vision support). Images are automatically detected and sent to the LLM for analysis.
 
 ## Setup
 
