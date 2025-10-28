@@ -177,8 +177,8 @@ async def extract_images_from_message(message: discord.Message) -> List[str]:
                 image_urls.append(attachment.url)
                 logger.info(f"Found image attachment: {attachment.filename} ({attachment.content_type})")
     else:
-        logger.debug(f"Message has no attachments")
-    
+        logger.debug("Message has no attachments")
+
     return image_urls
 
 async def get_all_images_from_context(message_context: Optional[Dict[str, Any]]) -> List[str]:
@@ -204,8 +204,8 @@ async def get_all_images_from_context(message_context: Optional[Dict[str, Any]])
             data_url = await create_image_data_url(url)
             if data_url:
                 image_data_urls.append(data_url)
-                logger.info(f"Added image from referenced message")
-    
+                logger.info("Added image from referenced message")
+
     # Check linked messages
     if message_context.get('linked_messages'):
         for linked_msg in message_context['linked_messages']:
@@ -214,8 +214,8 @@ async def get_all_images_from_context(message_context: Optional[Dict[str, Any]])
                 data_url = await create_image_data_url(url)
                 if data_url:
                     image_data_urls.append(data_url)
-                    logger.info(f"Added image from linked message")
-    
+                    logger.info("Added image from linked message")
+
     # Check original message
     if message_context.get('original_message'):
         orig_msg = message_context['original_message']
@@ -224,8 +224,8 @@ async def get_all_images_from_context(message_context: Optional[Dict[str, Any]])
             data_url = await create_image_data_url(url)
             if data_url:
                 image_data_urls.append(data_url)
-                logger.info(f"Added image from original message")
-    
+                logger.info("Added image from original message")
+
     logger.info(f"Total images extracted from context: {len(image_data_urls)}")
     return image_data_urls
 

@@ -66,18 +66,22 @@ def compress_messages_table() -> Tuple[int, int, int]:
             """)
             
             messages = cursor.fetchall()
-            
-            # Process each message
+
+            # Collect updates in batches for better performance
+            batch_size = 1000  # Process 1000 messages at a time
+            current_batch = []
+            total_processed_in_batch = 0
+
             for row in messages:
                 message_id = row['id']
                 content = row['content']
                 summary = row['scraped_content_summary']
                 key_points = row['scraped_content_key_points']
-                
+
                 needs_update = False
                 original_size = 0
                 compressed_size = 0
-                
+
                 # Compress content if not already compressed
                 new_content = content
                 if content and not is_already_compressed(content):
@@ -86,7 +90,7 @@ def compress_messages_table() -> Tuple[int, int, int]:
                     if new_content != content:
                         compressed_size += len(new_content.encode('utf-8'))
                         needs_update = True
-                
+
                 # Compress summary if not already compressed
                 new_summary = summary
                 if summary and not is_already_compressed(summary):
@@ -95,7 +99,7 @@ def compress_messages_table() -> Tuple[int, int, int]:
                     if new_summary != summary:
                         compressed_size += len(new_summary.encode('utf-8'))
                         needs_update = True
-                
+
                 # Compress key points if not already compressed
                 new_key_points = key_points
                 if key_points and not is_already_compressed(key_points):
@@ -104,26 +108,44 @@ def compress_messages_table() -> Tuple[int, int, int]:
                     if new_key_points != key_points:
                         compressed_size += len(new_key_points.encode('utf-8'))
                         needs_update = True
-                
-                # Update the record if anything was compressed
+
+                # Collect update if needed
                 if needs_update:
-                    cursor.execute("""
+                    current_batch.append((new_content, new_summary, new_key_points, message_id))
+                    compressed_count += 1
+                    total_bytes_saved += (original_size - compressed_size)
+
+                processed_count += 1
+
+                # Process batch when it reaches the batch size
+                if len(current_batch) >= batch_size:
+                    cursor.executemany("""
                         UPDATE messages
                         SET content = ?,
                             scraped_content_summary = ?,
                             scraped_content_key_points = ?
                         WHERE id = ?
-                    """, (new_content, new_summary, new_key_points, message_id))
-                    
-                    compressed_count += 1
-                    total_bytes_saved += (original_size - compressed_size)
-                
-                processed_count += 1
-                
-                # Log progress every 100 messages
-                if processed_count % 100 == 0:
-                    logger.info(f"Processed {processed_count}/{total_messages} messages ({compressed_count} compressed)")
-            
+                    """, current_batch)
+
+                    total_processed_in_batch += len(current_batch)
+                    current_batch.clear()
+
+                    # Log progress every batch
+                    logger.info(f"Processed {processed_count}/{total_messages} messages ({compressed_count} compressed, {total_processed_in_batch} updated in current batch)")
+
+            # Process remaining updates in the final batch
+            if current_batch:
+                cursor.executemany("""
+                    UPDATE messages
+                    SET content = ?,
+                        scraped_content_summary = ?,
+                        scraped_content_key_points = ?
+                    WHERE id = ?
+                """, current_batch)
+
+                total_processed_in_batch += len(current_batch)
+                logger.info(f"Processed final batch: {len(current_batch)} messages updated")
+
             conn.commit()
             logger.info(f"Successfully compressed {compressed_count} messages out of {processed_count} total")
             logger.info(f"Total space saved: {format_size(total_bytes_saved)}")
@@ -163,18 +185,22 @@ def compress_channel_summaries_table() -> Tuple[int, int, int]:
             """)
             
             summaries = cursor.fetchall()
-            
-            # Process each summary
+
+            # Collect updates in batches for better performance
+            batch_size = 1000  # Process 1000 summaries at a time
+            current_batch = []
+            total_processed_in_batch = 0
+
             for row in summaries:
                 summary_id = row['id']
                 summary_text = row['summary_text']
                 active_users_list = row['active_users_list']
                 metadata = row['metadata']
-                
+
                 needs_update = False
                 original_size = 0
                 compressed_size = 0
-                
+
                 # Compress summary text if not already compressed
                 new_summary_text = summary_text
                 if summary_text and not is_already_compressed(summary_text):
@@ -183,7 +209,7 @@ def compress_channel_summaries_table() -> Tuple[int, int, int]:
                     if new_summary_text != summary_text:
                         compressed_size += len(new_summary_text.encode('utf-8'))
                         needs_update = True
-                
+
                 # Compress active users list if not already compressed
                 new_active_users = active_users_list
                 if active_users_list and not is_already_compressed(active_users_list):
@@ -192,7 +218,7 @@ def compress_channel_summaries_table() -> Tuple[int, int, int]:
                     if new_active_users != active_users_list:
                         compressed_size += len(new_active_users.encode('utf-8'))
                         needs_update = True
-                
+
                 # Compress metadata if not already compressed
                 new_metadata = metadata
                 if metadata and not is_already_compressed(metadata):
@@ -201,22 +227,44 @@ def compress_channel_summaries_table() -> Tuple[int, int, int]:
                     if new_metadata != metadata:
                         compressed_size += len(new_metadata.encode('utf-8'))
                         needs_update = True
-                
-                # Update the record if anything was compressed
+
+                # Collect update if needed
                 if needs_update:
-                    cursor.execute("""
+                    current_batch.append((new_summary_text, new_active_users, new_metadata, summary_id))
+                    compressed_count += 1
+                    total_bytes_saved += (original_size - compressed_size)
+
+                processed_count += 1
+
+                # Process batch when it reaches the batch size
+                if len(current_batch) >= batch_size:
+                    cursor.executemany("""
                         UPDATE channel_summaries
                         SET summary_text = ?,
                             active_users_list = ?,
                             metadata = ?
                         WHERE id = ?
-                    """, (new_summary_text, new_active_users, new_metadata, summary_id))
-                    
-                    compressed_count += 1
-                    total_bytes_saved += (original_size - compressed_size)
-                
-                processed_count += 1
-            
+                    """, current_batch)
+
+                    total_processed_in_batch += len(current_batch)
+                    current_batch.clear()
+
+                    # Log progress every batch
+                    logger.info(f"Processed {processed_count}/{total_summaries} summaries ({compressed_count} compressed, {total_processed_in_batch} updated in current batch)")
+
+            # Process remaining updates in the final batch
+            if current_batch:
+                cursor.executemany("""
+                    UPDATE channel_summaries
+                    SET summary_text = ?,
+                        active_users_list = ?,
+                        metadata = ?
+                    WHERE id = ?
+                """, current_batch)
+
+                total_processed_in_batch += len(current_batch)
+                logger.info(f"Processed final batch: {len(current_batch)} summaries updated")
+
             conn.commit()
             logger.info(f"Successfully compressed {compressed_count} summaries out of {processed_count} total")
             logger.info(f"Total space saved: {format_size(total_bytes_saved)}")

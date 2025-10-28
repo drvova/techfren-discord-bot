@@ -41,7 +41,7 @@ max_requests_per_minute = int(os.getenv('MAX_REQUESTS_PER_MINUTE', '6'))
 firecrawl_api_key = os.getenv('FIRECRAWL_API_KEY')
 if not firecrawl_api_key or firecrawl_api_key == 'YOUR_FIRECRAWL_API_KEY':
     import warnings
-    warnings.warn("FIRECRAWL_API_KEY not configured - link scraping features will be disabled")
+    warnings.warn("FIRECRAWL_API_KEY not configured - link scraping features will be disabled", stacklevel=2)
     firecrawl_api_key = None
 
 # Apify API Token (optional, for x.com/twitter.com link scraping)
