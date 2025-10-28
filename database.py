@@ -8,11 +8,71 @@ import os
 import logging
 import json
 import asyncio
+import gzip
+import base64
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 
 # Set up logging
 logger = logging.getLogger('discord_bot.database')
+
+# Database compression utilities
+COMPRESSION_THRESHOLD = 100
+COMPRESSION_MARKER = b"__GZIP__"
+
+def compress_text(text: Optional[str]) -> Optional[str]:
+    """Compress text data using gzip and encode as base64."""
+    if not text:
+        return text
+
+    try:
+        if text.startswith(COMPRESSION_MARKER.decode('utf-8', errors='ignore')):
+            return text
+
+        text_bytes = text.encode('utf-8')
+        if len(text_bytes) < COMPRESSION_THRESHOLD:
+            return text
+
+        compressed = gzip.compress(text_bytes, compresslevel=6)
+
+        if len(compressed) >= len(text_bytes):
+            return text
+
+        marked_data = COMPRESSION_MARKER + compressed
+        encoded = base64.b64encode(marked_data).decode('utf-8')
+
+        compression_ratio = (1 - len(compressed) / len(text_bytes)) * 100
+        logger.debug(f"Compressed text from {len(text_bytes)} to {len(compressed)} bytes ({compression_ratio:.1f}% reduction)")
+
+        return encoded
+    except Exception as e:
+        logger.error(f"Error compressing text: {str(e)}", exc_info=True)
+        return text
+
+def decompress_text(text: Optional[str]) -> Optional[str]:
+    """Decompress text data that was compressed with compress_text."""
+    if not text:
+        return text
+
+    try:
+        try:
+            decoded = base64.b64decode(text.encode('utf-8'))
+        except Exception:
+            return text
+
+        if not decoded.startswith(COMPRESSION_MARKER):
+            return text
+
+        compressed_data = decoded[len(COMPRESSION_MARKER):]
+        decompressed = gzip.decompress(compressed_data)
+        result = decompressed.decode('utf-8')
+
+        logger.debug(f"Decompressed text from {len(compressed_data)} to {len(decompressed)} bytes")
+
+        return result
+    except Exception as e:
+        logger.warning(f"Error decompressing text, returning original: {str(e)}")
+        return text
 
 # Database constants
 DB_DIRECTORY = "data"
@@ -264,9 +324,14 @@ def store_message(
         with get_connection() as conn:
             cursor = conn.cursor()
 
-# Ensure consistent datetime format for storage (always UTC, no timezone info for SQLite compatibility)
+            # Ensure consistent datetime format for storage (always UTC, no timezone info for SQLite compatibility)
             created_at_str = created_at.replace(tzinfo=None).isoformat()
-            
+
+            # Compress text fields to save space
+            compressed_content = compress_text(content)
+            compressed_summary = compress_text(scraped_content_summary)
+            compressed_key_points = compress_text(scraped_content_key_points)
+
             cursor.execute(
                 INSERT_MESSAGE,
                 (
@@ -277,14 +342,14 @@ def store_message(
                     channel_name,
                     guild_id,
                     guild_name,
-                    content,
+                    compressed_content,
                     created_at_str,
                     1 if is_bot else 0,
                     1 if is_command else 0,
                     command_type,
                     scraped_url,
-                    scraped_content_summary,
-                    scraped_content_key_points
+                    compressed_summary,
+                    compressed_key_points
                 )
             )
 
@@ -318,12 +383,17 @@ async def store_messages_batch(messages: List[Dict[str, Any]]) -> bool:
         def _store_batch():
             with get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 for msg in messages:
                     # Ensure consistent datetime format for storage (always UTC, no timezone info for SQLite compatibility)
                     created_at = msg['created_at']
                     created_at_str = created_at.replace(tzinfo=None).isoformat()
-                    
+
+                    # Compress text fields to save space
+                    compressed_content = compress_text(msg['content'])
+                    compressed_summary = compress_text(msg.get('scraped_content_summary'))
+                    compressed_key_points = compress_text(msg.get('scraped_content_key_points'))
+
                     cursor.execute(
                         INSERT_MESSAGE,
                         (
@@ -334,17 +404,17 @@ async def store_messages_batch(messages: List[Dict[str, Any]]) -> bool:
                             msg['channel_name'],
                             msg.get('guild_id'),
                             msg.get('guild_name'),
-                            msg['content'],
+                            compressed_content,
                             created_at_str,
                             int(msg.get('is_bot', False)),
                             int(msg.get('is_command', False)),
                             msg.get('command_type'),
                             msg.get('scraped_url'),
-                            msg.get('scraped_content_summary'),
-                            msg.get('scraped_content_key_points')
+                            compressed_summary,
+                            compressed_key_points
                         )
                     )
-                
+
                 conn.commit()
                 return True
 
@@ -488,18 +558,18 @@ def get_all_channel_messages(channel_id: str, limit: int = 100) -> List[Dict[str
                 (channel_id, limit)
             )
 
-            # Convert rows to dictionaries
+            # Convert rows to dictionaries and decompress text fields
             messages = []
             for row in cursor.fetchall():
                 messages.append({
                     'author_name': row['author_name'],
-                    'content': row['content'],
+                    'content': decompress_text(row['content']),
                     'created_at': datetime.fromisoformat(row['created_at']),
                     'is_bot': bool(row['is_bot']),
                     'is_command': bool(row['is_command']),
                     'scraped_url': row['scraped_url'],
-                    'scraped_content_summary': row['scraped_content_summary'],
-                    'scraped_content_key_points': row['scraped_content_key_points']
+                    'scraped_content_summary': decompress_text(row['scraped_content_summary']),
+                    'scraped_content_key_points': decompress_text(row['scraped_content_key_points'])
                 })
 
         logger.info(f"Retrieved {len(messages)} messages from channel {channel_id} (all time)")
@@ -574,19 +644,19 @@ def get_channel_messages_for_hours(channel_id: str, date: datetime, hours: int) 
                 (channel_id, start_date_str, end_date_str, start_date_str, end_date_str)
             )
 
-            # Convert rows to dictionaries
+            # Convert rows to dictionaries and decompress text fields
             messages = []
             for row in cursor.fetchall():
                 messages.append({
                     'id': row['id'],
                     'author_name': row['author_name'],
-                    'content': row['content'],
+                    'content': decompress_text(row['content']),
                     'created_at': datetime.fromisoformat(row['created_at']),
                     'is_bot': bool(row['is_bot']),
                     'is_command': bool(row['is_command']),
                     'scraped_url': row['scraped_url'],
-                    'scraped_content_summary': row['scraped_content_summary'],
-                    'scraped_content_key_points': row['scraped_content_key_points'],
+                    'scraped_content_summary': decompress_text(row['scraped_content_summary']),
+                    'scraped_content_key_points': decompress_text(row['scraped_content_key_points']),
                     'guild_id': row['guild_id'],
                     'channel_id': channel_id
                 })
@@ -628,7 +698,7 @@ def get_messages_for_time_range(start_time: datetime, end_time: datetime) -> Dic
                 (start_date_str, end_date_str)
             )
 
-            # Group messages by channel
+            # Group messages by channel and decompress content
             messages_by_channel = {}
             for row in cursor.fetchall():
                 channel_id = row['channel_id']
@@ -646,7 +716,7 @@ def get_messages_for_time_range(start_time: datetime, end_time: datetime) -> Dic
                     'id': row['id'],
                     'author_id': row['author_id'],
                     'author_name': row['author_name'],
-                    'content': row['content'],
+                    'content': decompress_text(row['content']),
                     'created_at': datetime.fromisoformat(row['created_at']),
                     'is_bot': bool(row['is_bot']),
                     'is_command': bool(row['is_command'])
@@ -700,6 +770,11 @@ def store_channel_summary(
         # Current timestamp
         created_at = datetime.now().isoformat()
 
+        # Compress text fields to save space
+        compressed_summary = compress_text(summary_text)
+        compressed_active_users = compress_text(active_users_json)
+        compressed_metadata = compress_text(metadata_json)
+
         with get_connection() as conn:
             cursor = conn.cursor()
 
@@ -711,12 +786,12 @@ def store_channel_summary(
                     guild_id,
                     guild_name,
                     date_str,
-                    summary_text,
+                    compressed_summary,
                     message_count,
                     len(active_users),
-                    active_users_json,
+                    compressed_active_users,
                     created_at,
-                    metadata_json
+                    compressed_metadata
                 )
             )
 
