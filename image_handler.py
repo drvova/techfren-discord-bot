@@ -1,6 +1,7 @@
 import discord
 import aiohttp
 import base64
+import re
 from typing import Optional, List, Dict, Any
 from logging_config import logger
 from PIL import Image
@@ -242,16 +243,69 @@ async def get_images_from_summary_messages(messages: List[Dict[str, Any]], max_i
         List[Dict[str, str]]: List of dicts with 'data_url', 'author', 'timestamp'
     """
     image_data = []
-    
+
+    # Regex pattern to match image URLs in message content
+    # Matches common image extensions and Discord CDN URLs
+    image_url_pattern = re.compile(
+        r'https?://(?:cdn\.discordapp\.com|media\.discordapp\.net|[^\s]+?)(?:/[^\s]*)?\.(?:jpg|jpeg|png|gif|webp|bmp)(?:\?[^\s]*)?',
+        re.IGNORECASE
+    )
+
     # Process messages in reverse to get most recent images first
     for msg in reversed(messages):
         if len(image_data) >= max_images:
             break
-            
-        # Check if message has image_urls field (would need to be stored in DB)
-        # For now, we'll note that this would require DB schema update
-        # This is a placeholder for the full implementation
-        pass
-    
+
+        # Extract message content
+        content = msg.get('content', '')
+        if not content:
+            continue
+
+        # Find all image URLs in the message content
+        image_urls = image_url_pattern.findall(content)
+
+        if not image_urls:
+            continue
+
+        # Get metadata from message
+        author = msg.get('author_name', 'Unknown')
+        timestamp = msg.get('created_at', '')
+
+        # Process each image URL found in this message
+        for url in image_urls:
+            if len(image_data) >= max_images:
+                break
+
+            try:
+                # Download the image
+                image_bytes = await download_image(url)
+                if not image_bytes:
+                    logger.warning(f"Failed to download image from {url}")
+                    continue
+
+                # Optionally compress the image
+                if compress:
+                    try:
+                        image_bytes = compress_image(image_bytes)
+                    except Exception as e:
+                        logger.warning(f"Failed to compress image from {url}: {e}")
+                        # Continue with uncompressed image
+
+                # Convert to base64 data URL
+                base64_data = base64.b64encode(image_bytes).decode('utf-8')
+                data_url = f"data:image/jpeg;base64,{base64_data}"
+
+                # Add to results
+                image_data.append({
+                    'data_url': data_url,
+                    'author': author,
+                    'timestamp': str(timestamp)
+                })
+                logger.info(f"Processed image from {author} at {timestamp}")
+
+            except Exception as e:
+                logger.error(f"Error processing image from {url}: {e}", exc_info=True)
+                continue
+
     logger.info(f"Extracted {len(image_data)} images from summary messages (max: {max_images})")
     return image_data
