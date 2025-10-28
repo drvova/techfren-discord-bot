@@ -926,17 +926,18 @@ def get_scraped_content_by_url(url: str) -> Optional[Dict[str, Any]]:
                 logger.debug(f"No scraped content found for URL: {url}")
                 return None
             
-            # Parse key points JSON
+            # Parse key points JSON (decompress first if needed)
             key_points = []
             if row['scraped_content_key_points']:
                 try:
-                    key_points = json.loads(row['scraped_content_key_points'])
+                    decompressed_points = decompress_text(row['scraped_content_key_points'])
+                    key_points = json.loads(decompressed_points) if decompressed_points else []
                 except json.JSONDecodeError:
                     logger.warning(f"Invalid JSON in scraped_content_key_points for URL {url}")
-            
+
             result = {
                 'url': row['scraped_url'],
-                'summary': row['scraped_content_summary'],
+                'summary': decompress_text(row['scraped_content_summary']),
                 'key_points': key_points,
                 'created_at': row['created_at']
             }
@@ -946,4 +947,167 @@ def get_scraped_content_by_url(url: str) -> Optional[Dict[str, Any]]:
             
     except Exception as e:
         logger.error(f"Error retrieving scraped content for URL {url}: {str(e)}", exc_info=True)
+        return None
+
+def get_channel_summaries(
+    channel_id: Optional[str] = None,
+    guild_id: Optional[str] = None,
+    date: Optional[str] = None,
+    limit: int = 100
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve channel summaries from the database with automatic decompression.
+
+    Args:
+        channel_id (Optional[str]): Filter by channel ID
+        guild_id (Optional[str]): Filter by guild ID
+        date (Optional[str]): Filter by date (YYYY-MM-DD)
+        limit (int): Maximum number of summaries to return
+
+    Returns:
+        List[Dict[str, Any]]: List of channel summaries with decompressed fields
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build query with filters
+            query = """
+                SELECT
+                    id, channel_id, channel_name, guild_id, guild_name,
+                    date, summary_text, message_count, active_users,
+                    active_users_list, created_at, metadata
+                FROM channel_summaries
+            """
+
+            conditions = []
+            params = []
+
+            if channel_id:
+                conditions.append("channel_id = ?")
+                params.append(channel_id)
+
+            if guild_id:
+                conditions.append("guild_id = ?")
+                params.append(guild_id)
+
+            if date:
+                conditions.append("date = ?")
+                params.append(date)
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            # Convert rows to dictionaries and decompress fields
+            summaries = []
+            for row in rows:
+                # Decompress and parse active_users_list JSON
+                decompressed_users = decompress_text(row['active_users_list'])
+                try:
+                    active_users_list = json.loads(decompressed_users) if decompressed_users else []
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON in active_users_list for summary {row['id']}")
+                    active_users_list = []
+
+                # Decompress metadata JSON
+                decompressed_metadata = decompress_text(row['metadata'])
+                try:
+                    metadata = json.loads(decompressed_metadata) if decompressed_metadata else {}
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON in metadata for summary {row['id']}")
+                    metadata = {}
+
+                summaries.append({
+                    'id': row['id'],
+                    'channel_id': row['channel_id'],
+                    'channel_name': row['channel_name'],
+                    'guild_id': row['guild_id'],
+                    'guild_name': row['guild_name'],
+                    'date': row['date'],
+                    'summary_text': decompress_text(row['summary_text']),
+                    'message_count': row['message_count'],
+                    'active_users': row['active_users'],
+                    'active_users_list': active_users_list,
+                    'created_at': row['created_at'],
+                    'metadata': metadata
+                })
+
+        logger.info(f"Retrieved {len(summaries)} channel summaries")
+        return summaries
+    except Exception as e:
+        logger.error(f"Error retrieving channel summaries: {str(e)}", exc_info=True)
+        return []
+
+def get_channel_summary_by_id(summary_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve a specific channel summary by ID with automatic decompression.
+
+    Args:
+        summary_id (int): The ID of the summary to retrieve
+
+    Returns:
+        Optional[Dict[str, Any]]: The channel summary with decompressed fields, or None if not found
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT
+                    id, channel_id, channel_name, guild_id, guild_name,
+                    date, summary_text, message_count, active_users,
+                    active_users_list, created_at, metadata
+                FROM channel_summaries
+                WHERE id = ?
+                """,
+                (summary_id,)
+            )
+
+            row = cursor.fetchone()
+            if not row:
+                logger.debug(f"No channel summary found with ID {summary_id}")
+                return None
+
+            # Decompress and parse active_users_list JSON
+            decompressed_users = decompress_text(row['active_users_list'])
+            try:
+                active_users_list = json.loads(decompressed_users) if decompressed_users else []
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON in active_users_list for summary {row['id']}")
+                active_users_list = []
+
+            # Decompress metadata JSON
+            decompressed_metadata = decompress_text(row['metadata'])
+            try:
+                metadata = json.loads(decompressed_metadata) if decompressed_metadata else {}
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON in metadata for summary {row['id']}")
+                metadata = {}
+
+            result = {
+                'id': row['id'],
+                'channel_id': row['channel_id'],
+                'channel_name': row['channel_name'],
+                'guild_id': row['guild_id'],
+                'guild_name': row['guild_name'],
+                'date': row['date'],
+                'summary_text': decompress_text(row['summary_text']),
+                'message_count': row['message_count'],
+                'active_users': row['active_users'],
+                'active_users_list': active_users_list,
+                'created_at': row['created_at'],
+                'metadata': metadata
+            }
+
+            logger.debug(f"Retrieved channel summary with ID {summary_id}")
+            return result
+    except Exception as e:
+        logger.error(f"Error retrieving channel summary with ID {summary_id}: {str(e)}", exc_info=True)
         return None

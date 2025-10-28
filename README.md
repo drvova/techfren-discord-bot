@@ -1,4 +1,4 @@
-# TechFren Discord Bot
+# TechFren Discord Bot.
 
 A simple Discord bot built with discord.py.
 
