@@ -34,10 +34,20 @@ def compress_text(text: Optional[str]) -> Optional[str]:
     
     try:
         # Check if text is already compressed
+        # First check for base64-encoded compressed data
+        try:
+            decoded_bytes = base64.b64decode(text, validate=True)
+            if decoded_bytes.startswith(COMPRESSION_MARKER):
+                logger.debug("Text is already compressed (base64-encoded), skipping")
+                return text
+        except Exception:
+            pass  # Not base64 or not compressed data, continue with normal flow
+
+        # Check for plaintext marker (edge case for backward compatibility)
         if text.startswith(COMPRESSION_MARKER.decode('utf-8', errors='ignore')):
-            logger.debug("Text is already compressed, skipping")
+            logger.debug("Text is already compressed (plaintext marker), skipping")
             return text
-        
+
         # Only compress if larger than threshold
         text_bytes = text.encode('utf-8')
         if len(text_bytes) < COMPRESSION_THRESHOLD:

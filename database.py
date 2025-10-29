@@ -26,6 +26,15 @@ def compress_text(text: Optional[str]) -> Optional[str]:
         return text
 
     try:
+        # Check if text is already base64-encoded compressed data
+        try:
+            decoded_bytes = base64.b64decode(text, validate=True)
+            if decoded_bytes.startswith(COMPRESSION_MARKER):
+                return text
+        except Exception:
+            pass  # Not base64 or not compressed data, continue with normal flow
+
+        # Check for plaintext marker (edge case for backward compatibility)
         if text.startswith(COMPRESSION_MARKER.decode('utf-8', errors='ignore')):
             return text
 
