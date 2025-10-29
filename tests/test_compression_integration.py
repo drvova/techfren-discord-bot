@@ -20,24 +20,26 @@ from database import (
 @pytest.fixture
 def test_db(tmp_path):
     """Create a temporary test database."""
-    # Backup original DB_FILE
-    original_db = DB_FILE
-    
+    # Backup original DB_FILE and DB_DIRECTORY
+    import database
+    original_db_file = DB_FILE
+    original_db_directory = database.DB_DIRECTORY
+
     # Create temporary database path
     test_db_path = tmp_path / "test_discord.db"
-    
-    # Monkey patch the DB_FILE
-    import database
+
+    # Monkey patch the DB_FILE and DB_DIRECTORY
     database.DB_FILE = str(test_db_path)
     database.DB_DIRECTORY = str(tmp_path)
-    
+
     # Initialize database
     init_database()
-    
+
     yield str(test_db_path)
-    
-    # Restore original DB_FILE
-    database.DB_FILE = original_db
+
+    # Restore original DB_FILE and DB_DIRECTORY
+    database.DB_FILE = original_db_file
+    database.DB_DIRECTORY = original_db_directory
 
 
 class TestCompressionIntegration:
