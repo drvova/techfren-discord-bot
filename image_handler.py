@@ -141,12 +141,18 @@ async def create_image_data_url(url: str, compress: bool = True, max_size: int =
             return None
         
         # Compress image if requested
+        was_compressed = False
         if compress:
-            image_bytes = compress_image(image_bytes, max_size=max_size, quality=quality)
-        
+            try:
+                image_bytes = compress_image(image_bytes, max_size=max_size, quality=quality)
+                was_compressed = True
+            except Exception as e:
+                logger.warning(f"Failed to compress image from {url}: {e}")
+                # Continue with uncompressed image
+
         base64_str = encode_image_to_base64(image_bytes)
-        # Always use JPEG mime type for compressed images
-        mime_type = 'image/jpeg' if compress else get_image_mime_type(url)
+        # Use image/jpeg only if compressed, otherwise use original MIME type
+        mime_type = 'image/jpeg' if was_compressed else get_image_mime_type(url)
         
         data_url = f"data:{mime_type};base64,{base64_str}"
         logger.info(f"Created {'compressed ' if compress else ''}image data URL from {url} (size: {len(image_bytes)} bytes)")
@@ -284,16 +290,20 @@ async def get_images_from_summary_messages(messages: List[Dict[str, Any]], max_i
                     continue
 
                 # Optionally compress the image
+                was_compressed = False
                 if compress:
                     try:
                         image_bytes = compress_image(image_bytes)
+                        was_compressed = True
                     except Exception as e:
                         logger.warning(f"Failed to compress image from {url}: {e}")
                         # Continue with uncompressed image
 
                 # Convert to base64 data URL
                 base64_data = base64.b64encode(image_bytes).decode('utf-8')
-                data_url = f"data:image/jpeg;base64,{base64_data}"
+                # Use image/jpeg only if compressed, otherwise use original MIME type
+                mime_type = 'image/jpeg' if was_compressed else get_image_mime_type(url)
+                data_url = f"data:{mime_type};base64,{base64_data}"
 
                 # Add to results
                 image_data.append({
