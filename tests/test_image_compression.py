@@ -6,17 +6,17 @@ from PIL import Image
 import io
 from image_handler import compress_image
 
-def create_test_image(width: int, height: int, mode: str = 'RGB') -> bytes:
+def create_test_image(width: int, height: int, mode: str = 'RGB', fmt: str = 'PNG') -> bytes:
     """Create a test image and return its bytes"""
     img = Image.new(mode, (width, height), color='red')
     output = io.BytesIO()
-    img.save(output, format='PNG')
+    img.save(output, format=fmt)
     return output.getvalue()
 
 def test_compress_large_image():
     """Test compressing a large image"""
     # Create a 2048x2048 test image
-    large_image = create_test_image(2048, 2048)
+    large_image = create_test_image(2048, 2048, fmt='JPEG')
     print(f"Original size: {len(large_image)} bytes")
     
     # Compress to 512x512
@@ -44,7 +44,7 @@ def test_compress_rgba_image():
     img = Image.open(io.BytesIO(compressed))
     assert img.mode == 'RGB', "Should be converted to RGB"
     assert img.format == 'JPEG', "Should be JPEG format"
-    print(f"✓ RGBA image converted to RGB")
+    print("✓ RGBA image converted to RGB")
 
 def test_compress_small_image():
     """Test that small images aren't resized but still compressed"""
@@ -66,7 +66,7 @@ def test_compress_small_image():
 def test_compression_ratio():
     """Test compression achieves good ratio"""
     # Create a large test image
-    large_image = create_test_image(2048, 2048)
+    large_image = create_test_image(2048, 2048, fmt='JPEG')
     original_size = len(large_image)
     
     # Compress
@@ -93,7 +93,7 @@ def test_different_quality_levels():
     
     # Lower quality should produce smaller files
     assert quality_sizes[50] < quality_sizes[95], "Lower quality should be smaller"
-    print(f"✓ Quality levels work correctly")
+    print("✓ Quality levels work correctly")
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

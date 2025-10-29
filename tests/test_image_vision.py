@@ -176,9 +176,9 @@ async def test_create_image_data_url_with_mock():
         mock_download.return_value = test_image_data
         
         data_url = await create_image_data_url("https://example.com/test.png")
-        
+
         assert data_url is not None
-        assert data_url.startswith("data:image/png;base64,")
+        assert data_url.startswith("data:image/jpeg;base64,")
         assert len(data_url) > 30
         mock_download.assert_called_once_with("https://example.com/test.png")
 
