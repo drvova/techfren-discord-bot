@@ -228,10 +228,20 @@ def view_summary(summary_id: int) -> None:
     decompressed_metadata = decompress_text(row['metadata'])
 
     # Parse the active users list from JSON
-    active_users = json.loads(decompressed_users_list) if decompressed_users_list else []
+    active_users = []
+    if decompressed_users_list:
+        try:
+            active_users = json.loads(decompressed_users_list)
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Warning: Failed to parse active_users_list for summary ID {summary_id}: {e}")
 
     # Parse metadata if available
-    metadata = json.loads(decompressed_metadata) if decompressed_metadata else {}
+    metadata = {}
+    if decompressed_metadata:
+        try:
+            metadata = json.loads(decompressed_metadata)
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Warning: Failed to parse metadata for summary ID {summary_id}: {e}")
 
     # Print the summary details
     print("\n" + "=" * 80)

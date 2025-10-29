@@ -108,17 +108,24 @@ def get_image_mime_type(url: str) -> str:
     Returns:
         str: The MIME type (defaults to 'image/jpeg')
     """
-    url_lower = url.lower()
-    if url_lower.endswith('.png'):
+    from urllib.parse import urlparse
+    
+    # Parse URL to extract path component (strips querystrings)
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    
+    if path.endswith('.png'):
         return 'image/png'
-    elif url_lower.endswith('.gif'):
+    elif path.endswith('.gif'):
         return 'image/gif'
-    elif url_lower.endswith('.webp'):
+    elif path.endswith('.webp'):
         return 'image/webp'
-    elif url_lower.endswith('.bmp'):
+    elif path.endswith('.bmp'):
         return 'image/bmp'
-    elif url_lower.endswith('.tiff') or url_lower.endswith('.tif'):
+    elif path.endswith('.tiff') or path.endswith('.tif'):
         return 'image/tiff'
+    elif path.endswith('.svg'):
+        return 'image/svg+xml'
     else:
         return 'image/jpeg'
 
