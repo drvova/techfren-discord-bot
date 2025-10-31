@@ -4,6 +4,8 @@ import discord
 from discord.ext import commands
 import asyncio
 import re
+from urllib.parse import urlparse, unquote
+
 import os
 import json
 from typing import Optional
@@ -24,15 +26,38 @@ from gif_limiter import check_and_record_gif_post
 GIF_WARNING_DELETE_DELAY = 30  # seconds before deleting warning messages
 GIF_URL_PATTERN = re.compile(r"https?://\S+\.gif(?:\?\S*)?", re.IGNORECASE)
 GIFV_URL_PATTERN = re.compile(r"https?://\S+\.gifv(?:\?\S*)?", re.IGNORECASE)
-GIF_DOMAIN_KEYWORDS = (
-    "tenor.com",
-    "tenor.co",
-    "media.tenor.com",
-    "giphy.com",
-    "media.giphy.com",
-    "gfycat.com",
-    "redgifs.com",
-)
+
+# Provider brands to detect regardless of TLD/subdomain (tenor.com, tenor.co, tenor.org, etc.)
+GIF_PROVIDER_BRANDS = ("tenor", "giphy", "gfycat", "redgifs")
+
+
+def _check_url_for_gif(url: str) -> bool:
+    """Check if a URL is a GIF link, handling percent-encoding and brand detection."""
+    if not url:
+        return False
+
+    # Decode percent-encoding (e.g., t%65nor.com -> tenor.com)
+    try:
+        decoded = unquote(url).lower()
+    except Exception:
+        decoded = url.lower()
+
+    # Check for .gif/.gifv extensions
+    if GIF_URL_PATTERN.search(decoded) or GIFV_URL_PATTERN.search(decoded):
+        return True
+
+    # Check hostname for provider brands (covers all TLDs/subdomains)
+    try:
+        hostname = urlparse(decoded).hostname or ""
+        if any(brand in hostname for brand in GIF_PROVIDER_BRANDS):
+            return True
+    except Exception:
+        # Fallback: check if brand appears anywhere in URL
+        if any(brand in decoded for brand in GIF_PROVIDER_BRANDS):
+            return True
+
+    return False
+
 
 # Track users who have been warned about GIF limits (user_id -> expiry_time)
 _gif_warned_users = {}
@@ -56,57 +81,36 @@ def _format_gif_cooldown(seconds_remaining: int) -> str:
 
 
 def message_contains_gif(message: discord.Message) -> bool:
-    """Determine whether a message contains a GIF attachment or link."""
+    """Detect GIFs in attachments, message content URLs, and embeds."""
 
-    # Check attachments first
+    # Check attachments
     for attachment in getattr(message, "attachments", []):
         filename = (attachment.filename or "").lower()
         content_type = (attachment.content_type or "").lower()
-
-        if filename.endswith(".gif"):
-            return True
-        if "gif" in content_type:
+        if filename.endswith((".gif", ".gifv")) or "gif" in content_type:
             return True
 
+    # Check message content for URLs
     content = message.content or ""
-    if GIF_URL_PATTERN.search(content) or GIFV_URL_PATTERN.search(content):
-        return True
+    if re.search(r'https?://\S+', content):
+        for match in re.finditer(r'https?://\S+', content):
+            if _check_url_for_gif(match.group(0)):
+                return True
 
-    lowered_content = content.lower()
-    if any(keyword in lowered_content for keyword in GIF_DOMAIN_KEYWORDS):
-        return True
-
-    # Check embeds for GIF indicators
+    # Check embeds
     for embed in getattr(message, "embeds", []):
         if getattr(embed, "type", None) == "gifv":
             return True
 
-        embed_url = (getattr(embed, "url", None) or "").lower()
-        if embed_url and (
-            GIF_URL_PATTERN.search(embed_url)
-            or GIFV_URL_PATTERN.search(embed_url)
-            or any(keyword in embed_url for keyword in GIF_DOMAIN_KEYWORDS)
-        ):
-            return True
-
-        image = getattr(embed, "image", None)
-        if image:
-            image_url = (getattr(image, "url", None) or "").lower()
-            if image_url and (
-                GIF_URL_PATTERN.search(image_url)
-                or GIFV_URL_PATTERN.search(image_url)
-                or any(keyword in image_url for keyword in GIF_DOMAIN_KEYWORDS)
-            ):
-                return True
-
-        thumbnail = getattr(embed, "thumbnail", None)
-        if thumbnail:
-            thumb_url = (getattr(thumbnail, "url", None) or "").lower()
-            if thumb_url and (
-                GIF_URL_PATTERN.search(thumb_url)
-                or GIFV_URL_PATTERN.search(thumb_url)
-                or any(keyword in thumb_url for keyword in GIF_DOMAIN_KEYWORDS)
-            ):
+        # Check all embed URLs
+        for url_attr in ["url", "image.url", "thumbnail.url"]:
+            parts = url_attr.split(".")
+            obj = embed
+            for part in parts:
+                obj = getattr(obj, part, None)
+                if obj is None:
+                    break
+            if obj and _check_url_for_gif(str(obj)):
                 return True
 
     return False
@@ -136,10 +140,10 @@ async def process_url(message_id: str, url: str):
         # Check if the URL is from YouTube
         if await is_youtube_url(url):
             logger.info(f"Detected YouTube URL: {url}")
-            
+
             # Use YouTube handler to scrape content
             scraped_result = await scrape_youtube_content(url)
-            
+
             # If YouTube scraping fails, fall back to Firecrawl
             if not scraped_result:
                 logger.warning(f"Failed to scrape YouTube content, falling back to Firecrawl: {url}")
@@ -246,24 +250,24 @@ async def handle_links_dump_channel(message: discord.Message) -> bool:
     """
     Handle messages in the links dump channel.
     Delete non-link messages with a warning that auto-deletes after 1 minute.
-    
+
     Args:
         message: The Discord message to check
-        
+
     Returns:
         bool: True if message was handled (deleted), False if message should remain
     """
     try:
         # Import config here to avoid circular imports
         import config
-        
+
         # Check if links dump channel is configured and this is that channel
         if not hasattr(config, 'links_dump_channel_id') or not config.links_dump_channel_id:
             return False
-            
+
         # Check if this is the links dump channel or a thread within it
         is_links_dump_channel = False
-        
+
         if str(message.channel.id) == config.links_dump_channel_id:
             # Direct message in the links dump channel
             is_links_dump_channel = True
@@ -271,18 +275,18 @@ async def handle_links_dump_channel(message: discord.Message) -> bool:
             # Message in a thread created from the links dump channel - allow these
             logger.info(f"Message {message.id} is in a thread from links dump channel, allowing")
             return False
-            
+
         if not is_links_dump_channel:
             return False
-            
+
         # Don't handle bot messages or commands
         if message.author.bot:
             return False
-            
+
         # Check for URLs in the message content using the same regex as process_url
         url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?(?:\?[^\s]*)?'
         urls = re.findall(url_pattern, message.content)
-        
+
 
         # If message contains URLs, allow it
         if urls:
@@ -297,17 +301,17 @@ async def handle_links_dump_channel(message: discord.Message) -> bool:
                 f"Message {message.id} is forwarded from another channel, allowing"
             )
             return False
-            
+
         # Message doesn't contain URLs, send warning and schedule deletion
         logger.info(f"Deleting non-link message {message.id} in links dump channel")
-        
+
         warning_msg = await message.channel.send(
             f"{message.author.mention} We only allow sharing of links in this channel. "
             "If you want to comment on a link please put it in a thread, "
             "otherwise type your message in the appropriate channel. "
             "This message will be deleted in 1 minute."
         )
-        
+
         # Schedule deletion of both messages after 1 minute (60 seconds)
         async def delete_messages():
             await asyncio.sleep(60)  # 1 minute
@@ -320,7 +324,7 @@ async def handle_links_dump_channel(message: discord.Message) -> bool:
                 logger.warning(f"No permission to delete original message {message.id}")
             except Exception as e:
                 logger.error(f"Error deleting original message {message.id}: {e}")
-                
+
             try:
                 await warning_msg.delete()
                 logger.info(f"Deleted warning message {warning_msg.id} from links dump channel")
@@ -330,12 +334,12 @@ async def handle_links_dump_channel(message: discord.Message) -> bool:
                 logger.warning(f"No permission to delete warning message {warning_msg.id}")
             except Exception as e:
                 logger.error(f"Error deleting warning message {warning_msg.id}: {e}")
-        
+
         # Create background task for deletion
         asyncio.create_task(delete_messages())
-        
+
         return True  # Message was handled
-        
+
     except Exception as e:
         logger.error(f"Error handling links dump channel message {message.id}: {e}", exc_info=True)
         return False
@@ -608,6 +612,19 @@ async def on_message(message):
         # Optionally notify about the error in the channel if it's a user-facing command error
         # await message.channel.send("Sorry, an error occurred while processing your command.")
 
+
+# Catch GIFs added via message edits (e.g., embeds resolving after initial post)
+@bot.event
+async def on_message_edit(before: discord.Message, after: discord.Message):
+    """Re-check edited messages for GIFs to prevent embed-based bypasses."""
+    if after.author == bot.user or after.author.bot:
+        return
+
+    # Only enforce if the message NOW contains a GIF (didn't before, or still does)
+    if message_contains_gif(after):
+        # Reuse the same enforcement logic by treating it as a new message check
+        await on_message(after)
+
 # Helper function for slash command handling
 async def _handle_slash_command_wrapper(
     interaction: discord.Interaction,
@@ -635,7 +652,7 @@ async def _handle_slash_command_wrapper(
         else:
             # Re-raise other NotFound exceptions
             raise
-    
+
     if error_message is None:
         error_message = f"Sorry, an error occurred while processing the {command_name} command. Please try again later."
 
