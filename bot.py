@@ -26,6 +26,7 @@ GIF_URL_PATTERN = re.compile(r"https?://\S+\.gif(?:\?\S*)?", re.IGNORECASE)
 GIFV_URL_PATTERN = re.compile(r"https?://\S+\.gifv(?:\?\S*)?", re.IGNORECASE)
 GIF_DOMAIN_KEYWORDS = (
     "tenor.com",
+    "tenor.co",
     "media.tenor.com",
     "giphy.com",
     "media.giphy.com",
