@@ -104,7 +104,8 @@ CREATE TABLE IF NOT EXISTS messages (
     command_type TEXT,
     scraped_url TEXT,
     scraped_content_summary TEXT,
-    scraped_content_key_points TEXT
+    scraped_content_key_points TEXT,
+    image_summary TEXT
 );
 """
 
@@ -137,8 +138,8 @@ INSERT_MESSAGE = """
 INSERT INTO messages (
     id, author_id, author_name, channel_id, channel_name,
     guild_id, guild_name, content, created_at, is_bot, is_command, command_type,
-    scraped_url, scraped_content_summary, scraped_content_key_points
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    scraped_url, scraped_content_summary, scraped_content_key_points, image_summary
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 INSERT_CHANNEL_SUMMARY = """
@@ -217,9 +218,31 @@ def init_database() -> None:
             conn.commit()
 
         logger.info(f"Database initialized successfully at {DB_FILE}")
+
+        # Run migration to add image_summary column if needed
+        migrate_add_image_summary_column()
     except Exception as e:
         logger.error(f"Error initializing database: {str(e)}", exc_info=True)
         raise
+
+def migrate_add_image_summary_column() -> None:
+    """Migration to add image_summary column to existing database."""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+
+            # Check if column exists
+            cursor.execute("PRAGMA table_info(messages)")
+            columns = [col[1] for col in cursor.fetchall()]
+
+            if 'image_summary' not in columns:
+                cursor.execute("ALTER TABLE messages ADD COLUMN image_summary TEXT")
+                conn.commit()
+                logger.info("Added image_summary column to messages table")
+            else:
+                logger.debug("image_summary column already exists")
+    except Exception as e:
+        logger.error(f"Error migrating database schema: {str(e)}", exc_info=True)
 
 def get_connection() -> sqlite3.Connection:
     """
@@ -303,7 +326,8 @@ def store_message(
     command_type: Optional[str] = None,
     scraped_url: Optional[str] = None,
     scraped_content_summary: Optional[str] = None,
-    scraped_content_key_points: Optional[str] = None
+    scraped_content_key_points: Optional[str] = None,
+    image_summary: Optional[str] = None
 ) -> bool:
     """
     Store a message in the database.
@@ -324,6 +348,7 @@ def store_message(
         scraped_url (Optional[str]): The URL that was scraped from the message (if any)
         scraped_content_summary (Optional[str]): Summary of the scraped content (if any)
         scraped_content_key_points (Optional[str]): JSON string of key points from scraped content (if any)
+        image_summary (Optional[str]): AI-generated summary of image attachment (if any)
 
     Returns:
         bool: True if the message was stored successfully, False otherwise
@@ -340,6 +365,7 @@ def store_message(
             compressed_content = compress_text(content)
             compressed_summary = compress_text(scraped_content_summary)
             compressed_key_points = compress_text(scraped_content_key_points)
+            compressed_image_summary = compress_text(image_summary)
 
             cursor.execute(
                 INSERT_MESSAGE,
@@ -358,7 +384,8 @@ def store_message(
                     command_type,
                     scraped_url,
                     compressed_summary,
-                    compressed_key_points
+                    compressed_key_points,
+                    compressed_image_summary
                 )
             )
 
@@ -641,9 +668,9 @@ def get_channel_messages_for_hours(channel_id: str, date: datetime, hours: int) 
                 """
                 SELECT id, author_name, content, created_at, is_bot, is_command,
                        scraped_url, scraped_content_summary, scraped_content_key_points,
-                       guild_id
+                       guild_id, image_summary
                 FROM messages
-                WHERE channel_id = ? 
+                WHERE channel_id = ?
                 AND (
                     datetime(created_at) BETWEEN datetime(?) AND datetime(?)
                     OR datetime(substr(created_at, 1, 19)) BETWEEN datetime(?) AND datetime(?)
@@ -666,6 +693,7 @@ def get_channel_messages_for_hours(channel_id: str, date: datetime, hours: int) 
                     'scraped_url': row['scraped_url'],
                     'scraped_content_summary': decompress_text(row['scraped_content_summary']),
                     'scraped_content_key_points': decompress_text(row['scraped_content_key_points']),
+                    'image_summary': decompress_text(row['image_summary']),
                     'guild_id': row['guild_id'],
                     'channel_id': channel_id
                 })

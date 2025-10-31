@@ -89,6 +89,80 @@ async def scrape_url_on_demand(url: str) -> Optional[Dict[str, Any]]:
         logger.error(f"Error scraping URL on-demand {url}: {str(e)}", exc_info=True)
         return None
 
+async def generate_image_summary(image_url: str) -> Optional[str]:
+    """
+    Generate a concise text summary of an image using the LLM vision API.
+
+    Args:
+        image_url (str): The Discord CDN URL of the image
+
+    Returns:
+        Optional[str]: Text summary of the image (2-3 sentences), or None if failed
+    """
+    try:
+        logger.info(f"Generating image summary for: {image_url}")
+
+        # Import image handler to download and compress image
+        from image_handler import download_image, compress_image
+        import base64
+
+        # Download the image
+        image_bytes = await download_image(image_url)
+        if not image_bytes:
+            logger.warning(f"Failed to download image from {image_url}")
+            return None
+
+        # Compress the image to reduce token usage
+        compressed_bytes = compress_image(image_bytes, max_size=512, quality=85)
+
+        # Convert to base64 data URL
+        base64_image = base64.b64encode(compressed_bytes).decode('utf-8')
+
+        # Determine MIME type
+        mime_type = "image/jpeg"  # compress_image converts to JPEG
+        data_url = f"data:{mime_type};base64,{base64_image}"
+
+        # Initialize OpenAI client with Perplexity
+        openai_client = AsyncOpenAI(
+            base_url=getattr(config, 'perplexity_base_url', 'https://api.perplexity.ai'),
+            api_key=config.perplexity,
+            timeout=30.0
+        )
+
+        # Use vision model
+        model = getattr(config, 'llm_model', "sonar")
+
+        # Create vision API request
+        completion = await openai_client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Describe this image concisely in 2-3 sentences. Focus on the main subject, key details, and any text visible in the image."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": data_url
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=150
+        )
+
+        summary = completion.choices[0].message.content.strip()
+        logger.info(f"Generated image summary: {summary[:100]}...")
+        return summary
+
+    except Exception as e:
+        logger.error(f"Error generating image summary for {image_url}: {str(e)}", exc_info=True)
+        return None
+
 async def call_llm_api(query, message_context=None):
     """
     Call the LLM API with the user's query and return the response
@@ -334,12 +408,19 @@ async def call_llm_for_summary(messages, channel_name, date, hours=24):
             scraped_summary = msg.get('scraped_content_summary')
             scraped_key_points = msg.get('scraped_content_key_points')
 
+            # Check if this message has an image summary
+            image_summary = msg.get('image_summary')
+
             # Format the message with the basic content and clickable Discord link
             if message_link:
                 # Format as clickable Discord link that the LLM will understand
                 message_text = f"[{time_str}] {author_name}: {content} [Jump to message]({message_link})"
             else:
                 message_text = f"[{time_str}] {author_name}: {content}"
+
+            # If there's an image summary, add it to the message
+            if image_summary:
+                message_text += f"\n[Image: {image_summary}]"
 
             # If there's scraped content, add it to the message
             if scraped_url and scraped_summary:
