@@ -255,9 +255,15 @@ async def store_bot_response_db(bot_msg_obj: discord.Message, client_user: disco
     try:
         guild_id_str = str(guild.id) if guild else None
         guild_name_str = guild.name if guild else None
-        channel_id_str = str(channel.id)
-        # Handle DM channel name
-        channel_name_str = channel.name if hasattr(channel, 'name') else f"DM with {channel.recipient}"
+
+        # Handle threads: get parent channel ID instead of thread ID
+        if isinstance(channel, discord.Thread):
+            channel_id_str = str(channel.parent_id) if channel.parent_id else str(channel.id)
+            channel_name_str = channel.parent.name if channel.parent else channel.name
+        else:
+            channel_id_str = str(channel.id)
+            # Handle DM channel name
+            channel_name_str = channel.name if hasattr(channel, 'name') else f"DM with {channel.recipient}"
 
 
         success = database.store_message(

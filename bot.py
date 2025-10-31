@@ -457,27 +457,10 @@ async def _handle_slash_command_wrapper(
     hours: int = 24,
     error_message: Optional[str] = None
 ) -> None:
-    """Unified wrapper for slash command handling with error management."""
-    # Only defer if the interaction hasn't been acknowledged yet
-    try:
-        if not interaction.response.is_done():
-            await interaction.response.defer()
-    except discord.HTTPException as e:
-        if e.status == 400 and e.code == 40060:
-            # Interaction already acknowledged, continue without deferring
-            logger.warning(f"Interaction already acknowledged for {command_name}, continuing...")
-        else:
-            # Re-raise other HTTP exceptions
-            raise
-    except discord.NotFound as e:
-        if e.code == 10062:
-            # Interaction expired (took too long to respond)
-            logger.error(f"Interaction expired for {command_name} - took too long to respond")
-            return  # Can't do anything with an expired interaction
-        else:
-            # Re-raise other NotFound exceptions
-            raise
-    
+    """Unified wrapper for slash command handling with error management.
+
+    NOTE: This function expects the interaction to already be deferred by the caller.
+    """
     if error_message is None:
         error_message = f"Sorry, an error occurred while processing the {command_name} command. Please try again later."
 
@@ -525,12 +508,15 @@ async def _handle_slash_command_wrapper(
 @bot.tree.command(name="sum-day", description="Generate a summary of messages from today")
 async def sum_day_slash(interaction: discord.Interaction):
     """Slash command version of /sum-day"""
+    # Defer IMMEDIATELY to avoid timeout (must respond within 3 seconds)
+    await interaction.response.defer()
     await _handle_slash_command_wrapper(interaction, "sum-day", hours=24)
 
 @bot.tree.command(name="sum-hr", description="Generate a summary of messages from the past N hours")
 async def sum_hr_slash(interaction: discord.Interaction, hours: int):
     """Slash command version of /sum-hr"""
-    # Immediately defer to avoid timeout, then do validation in wrapper
+    # Defer IMMEDIATELY to avoid timeout (must respond within 3 seconds)
+    await interaction.response.defer()
     await _handle_slash_command_wrapper(interaction, "sum-hr", hours=hours)
 
 try:
