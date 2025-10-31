@@ -620,9 +620,12 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     if after.author == bot.user or after.author.bot:
         return
 
-    # Only enforce if the message NOW contains a GIF (didn't before, or still does)
-    if message_contains_gif(after):
-        # Reuse the same enforcement logic by treating it as a new message check
+    # Only enforce if a NEW GIF was added (didn't contain GIF before, but does now)
+    before_had_gif = message_contains_gif(before)
+    after_has_gif = message_contains_gif(after)
+
+    if after_has_gif and not before_had_gif:
+        # A GIF was added via edit - treat as a new GIF post
         await on_message(after)
 
 # Helper function for slash command handling
