@@ -205,7 +205,8 @@ def init_database() -> None:
                         None,
                         None,
                         None,
-                        None
+                        None,
+                        None  # image_summary
                     )
                 )
                 logger.info("Successfully inserted test message during database initialization")
