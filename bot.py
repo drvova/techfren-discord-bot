@@ -429,8 +429,12 @@ async def on_message(message):
 
     # Enforce GIF posting limits for regular users
     if not message.author.bot and message_contains_gif(message):
-        # Check if this is a forwarded message (has a reference)
-        is_forwarded = message.reference and message.reference.message_id
+        # Check if this is a forwarded message from another channel
+        is_forwarded = (
+            message.reference
+            and message.reference.message_id
+            and message.reference.channel_id != message.channel.id
+        )
 
         # Block all forwarded messages with GIFs to prevent bypassing rate limits
         if is_forwarded:
