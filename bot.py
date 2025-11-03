@@ -429,6 +429,76 @@ async def on_message(message):
 
     # Enforce GIF posting limits for regular users
     if not message.author.bot and message_contains_gif(message):
+        # Check if this is a forwarded message (has a reference)
+        is_forwarded = message.reference and message.reference.message_id
+
+        # Block all forwarded messages with GIFs to prevent bypassing rate limits
+        if is_forwarded:
+            user_id = str(message.author.id)
+            logger.info(
+                "User %s attempted to forward a message with a GIF (blocked)", message.author.id
+            )
+
+            # Delete the forwarded GIF message
+            try:
+                await message.delete()
+                logger.debug(f"Deleted forwarded GIF message {message.id}")
+            except discord.NotFound:
+                logger.info(f"Forwarded GIF message {message.id} already deleted")
+            except discord.Forbidden:
+                logger.warning(
+                    f"Insufficient permissions to delete forwarded GIF message {message.id}"
+                )
+            except Exception as delete_error:
+                logger.error(
+                    f"Unexpected error deleting forwarded GIF message {message.id}: {delete_error}",
+                    exc_info=True,
+                )
+
+            # Send a warning about forwarding GIFs
+            warning_message = (
+                f"{message.author.mention} Forwarding messages with GIFs is not allowed. "
+                f"Please post GIFs directly (subject to the 1 GIF per 5 minutes limit). "
+                f"This message will be deleted in 30 seconds."
+            )
+
+            warning_msg = None
+            try:
+                warning_msg = await message.channel.send(warning_message)
+            except discord.Forbidden:
+                logger.warning(
+                    f"Insufficient permissions to send forwarded GIF warning in channel {message.channel.id}"
+                )
+            except Exception as send_error:
+                logger.error(
+                    f"Failed to send forwarded GIF warning message in channel {message.channel.id}: {send_error}",
+                    exc_info=True,
+                )
+
+            if warning_msg:
+                async def delete_warning_after_delay():
+                    await asyncio.sleep(GIF_WARNING_DELETE_DELAY)
+                    try:
+                        await warning_msg.delete()
+                    except discord.NotFound:
+                        logger.debug(
+                            f"Forwarded GIF warning message {warning_msg.id} already deleted"
+                        )
+                    except discord.Forbidden:
+                        logger.warning(
+                            f"Insufficient permissions to delete forwarded GIF warning message {warning_msg.id}"
+                        )
+                    except Exception as warning_delete_error:
+                        logger.error(
+                            f"Failed to delete forwarded GIF warning message {warning_msg.id}: {warning_delete_error}",
+                            exc_info=True,
+                        )
+
+                asyncio.create_task(delete_warning_after_delay())
+
+            return  # Stop processing this message
+
+        # For non-forwarded GIFs, check rate limit
         can_post_gif, seconds_remaining = await check_and_record_gif_post(
             str(message.author.id), message.created_at
         )
@@ -468,7 +538,7 @@ async def on_message(message):
             if user_warning_expiry is None or user_warning_expiry <= now:
                 wait_text = _format_gif_cooldown(seconds_remaining)
                 warning_message = (
-                    f"{message.author.mention} You can only post one GIF every 15 minutes. "
+                    f"{message.author.mention} You can only post one GIF every 5 minutes. "
                     f"Please wait {wait_text} before posting another GIF. "
                     f"This message will be deleted in 30 seconds."
                 )
@@ -476,8 +546,8 @@ async def on_message(message):
                 warning_msg = None
                 try:
                     warning_msg = await message.channel.send(warning_message)
-                    # Mark user as warned for the next 15 minutes
-                    _gif_warned_users[user_id] = now + timedelta(minutes=15)
+                    # Mark user as warned for the next 5 minutes
+                    _gif_warned_users[user_id] = now + timedelta(minutes=5)
                     logger.debug(f"User {user_id} warned about GIF limit, will suppress warnings until {_gif_warned_users[user_id]}")
                 except discord.Forbidden:
                     logger.warning(
