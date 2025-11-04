@@ -196,7 +196,7 @@ async def handle_bot_command(
 async def _send_error_response_thread(
     message: discord.Message, client_user: discord.ClientUser, error_msg: str
 ) -> None:
-    """Send error response in a thread attached to the user's message."""
+    """Send error response - logs error if thread creation fails (no fallback to main channel)."""
     try:
         from command_abstraction import MessageResponseSender
 
@@ -215,28 +215,21 @@ async def _send_error_response_thread(
                     bot_response, client_user, message.guild, thread, error_msg
                 )
         else:
-            # Fallback to channel response
-            allowed_mentions = discord.AllowedMentions(
-                everyone=False, roles=False, users=True
+            # Thread creation failed - log critical error, do NOT fallback to main channel
+            logger.error(
+                f"CRITICAL: Thread creation failed for error response. "
+                f"Message ID: {message.id}, User: {message.author}, Channel: {message.channel.name}. "
+                f"Check bot permissions: CREATE_PUBLIC_THREADS, SEND_MESSAGES_IN_THREADS. "
+                f"Error message was: {error_msg[:100]}"
             )
-            bot_response = await message.channel.send(
-                error_msg, allowed_mentions=allowed_mentions, suppress_embeds=True
-            )
-            await store_bot_response_db(
-                bot_response, client_user, message.guild, message.channel, error_msg
-            )
+            # Do NOT send to main channel - this prevents duplicate responses
     except Exception as e:
-        logger.error(f"Error sending error response in thread: {str(e)}", exc_info=True)
-        # Ultimate fallback to channel response
-        allowed_mentions = discord.AllowedMentions(
-            everyone=False, roles=False, users=True
+        logger.error(
+            f"Exception in _send_error_response_thread: {str(e)}. "
+            f"Thread creation failed. Check bot permissions.",
+            exc_info=True,
         )
-        bot_response = await message.channel.send(
-            error_msg, allowed_mentions=allowed_mentions, suppress_embeds=True
-        )
-        await store_bot_response_db(
-            bot_response, client_user, message.guild, message.channel, error_msg
-        )
+        # Do NOT fallback to channel.send() - this was causing duplicates
 
 
 # Helper functions for parameter validation

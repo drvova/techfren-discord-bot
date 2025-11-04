@@ -135,6 +135,14 @@ class ThreadManager:
     ) -> Optional[discord.Thread]:
         """Create a thread from a message with proper error handling."""
         try:
+            # CRITICAL: Check if channel is already a thread - cannot create thread from thread
+            if isinstance(self.channel, discord.Thread):
+                logger.error(
+                    f"Cannot create thread '{name}' from message in existing thread '{self.channel.name}'. "
+                    f"Message ID: {message.id}. This is a Discord API limitation (Error 50024)."
+                )
+                return None
+
             # Check if message has guild info
             if not hasattr(message, "guild") or message.guild is None:
                 logger.debug("Message lacks guild info, fetching with proper context")
@@ -179,8 +187,18 @@ class ThreadManager:
                 if existing:
                     self._cache_thread(message.id, existing)
                 return existing
+
+            # Handle error 50024: Cannot execute action on this channel type
+            if e.status == 400 and e.code == 50024:
+                logger.error(
+                    f"Error 50024: Cannot create thread in channel type. "
+                    f"Channel: {self.channel.name} (Type: {type(self.channel).__name__}). "
+                    f"Message ID: {message.id}. Thread name: '{name}'"
+                )
+                return None
+
             logger.warning(
-                f"HTTP error creating thread '{name}': {e.status} - {e.text}"
+                f"HTTP error creating thread '{name}': {e.status} (code: {e.code}) - {e.text}"
             )
             return None
 
