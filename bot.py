@@ -755,15 +755,6 @@ async def _handle_slash_command_wrapper(
     try:
         if not interaction.response.is_done():
             await interaction.response.defer()
-    except discord.HTTPException as e:
-        if e.status == 400 and e.code == 40060:
-            # Interaction already acknowledged, continue without deferring
-            logger.warning(
-                f"Interaction already acknowledged for {command_name}, continuing..."
-            )
-        else:
-            # Re-raise other HTTP exceptions
-            raise
     except discord.NotFound as e:
         if e.code == 10062:
             # Interaction expired (took too long to respond)
@@ -772,6 +763,15 @@ async def _handle_slash_command_wrapper(
             )
             return  # Can't do anything with an expired interaction
         else:
+            raise
+    except discord.HTTPException as e:
+        if e.status == 400 and e.code == 40060:
+            # Interaction already acknowledged, continue without deferring
+            logger.warning(
+                f"Interaction already acknowledged for {command_name}, continuing..."
+            )
+        else:
+            # Re-raise other HTTP exceptions
             # Re-raise other NotFound exceptions
             raise
 

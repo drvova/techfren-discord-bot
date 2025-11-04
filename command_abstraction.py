@@ -106,6 +106,9 @@ class InteractionResponseSender:
 class ThreadManager:
     """Handles thread creation for both message and interaction contexts."""
 
+    # Class-level cache to prevent race conditions
+    _thread_creation_cache = {}
+
     def __init__(
         self, channel: discord.TextChannel, guild: Optional[discord.Guild] = None
     ):
@@ -124,24 +127,41 @@ class ThreadManager:
             The existing thread if found, None otherwise
         """
         try:
+            logger = logging.getLogger(__name__)
+
             # Check if message has a thread attribute (available for messages with threads)
+            logger.debug(
+                f"Checking message.thread for message {message.id}: hasattr={hasattr(message, 'thread')}, value={message.thread if hasattr(message, 'thread') else 'N/A'}"
+            )
             if hasattr(message, "thread") and message.thread:
-                logger = logging.getLogger(__name__)
                 logger.info(
                     f"Found existing thread '{message.thread.name}' (ID: {message.thread.id}) for message {message.id}"
                 )
                 return message.thread
 
-            # Fallback: Search active threads in the channel for one created from this message
-            if hasattr(self.channel, "threads"):
-                for thread in self.channel.threads:
-                    # Check if thread was created from this message by comparing IDs
-                    if hasattr(thread, "id") and thread.id == message.id:
-                        logger = logging.getLogger(__name__)
+            # Fetch active threads - in Discord.py, thread.id == starter_message.id
+            try:
+                active_threads = await self.channel.guild.active_threads()
+                logger.debug(
+                    f"Checking {len(active_threads)} active threads for message {message.id}"
+                )
+                for thread in active_threads:
+                    # Check if thread belongs to this channel and matches message ID
+                    # Discord API: thread.id is the same as the starter message ID
+                    if (
+                        hasattr(thread, "parent_id")
+                        and thread.parent_id == self.channel.id
+                        and thread.id == message.id
+                    ):
                         logger.info(
-                            f"Found existing thread via channel search: '{thread.name}' (ID: {thread.id})"
+                            f"Found existing thread via active threads search: '{thread.name}' (ID: {thread.id})"
                         )
                         return thread
+                logger.debug(
+                    f"No matching thread found in active threads for message {message.id}"
+                )
+            except (AttributeError, discord.HTTPException) as e:
+                logger.debug(f"Could not fetch active threads: {e}")
 
             return None
         except Exception as e:
@@ -158,15 +178,15 @@ class ThreadManager:
             return await self.channel.create_thread(
                 name=name, type=discord.ChannelType.public_thread
             )
+        except discord.Forbidden as e:
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Insufficient permissions to create thread '{name}': {e}")
+            return None
         except discord.HTTPException as e:
             logger = logging.getLogger(__name__)
             logger.warning(
                 f"Failed to create thread '{name}': HTTP {e.status} - {e.text}"
             )
-            return None
-        except discord.Forbidden as e:
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Insufficient permissions to create thread '{name}': {e}")
             return None
         except Exception as e:
             logger = logging.getLogger(__name__)
@@ -184,12 +204,22 @@ class ThreadManager:
 
         logger = logging.getLogger(__name__)
 
-        # First, check if thread already exists for this message
+        # Check cache first to prevent race conditions
+        if message.id in self._thread_creation_cache:
+            cached_thread = self._thread_creation_cache[message.id]
+            logger.info(
+                f"Returning cached thread '{cached_thread.name}' (ID: {cached_thread.id}) for message {message.id}"
+            )
+            return cached_thread
+
+        # Check if thread already exists for this message
         existing_thread = await self.get_existing_thread(message)
         if existing_thread:
             logger.info(
                 f"Reusing existing thread '{existing_thread.name}' (ID: {existing_thread.id}) for message {message.id}"
             )
+            # Cache for future calls
+            self._thread_creation_cache[message.id] = existing_thread
             return existing_thread
 
         try:
@@ -200,14 +230,22 @@ class ThreadManager:
                 )
                 try:
                     fetched_message = await self.channel.fetch_message(message.id)
-                    return await fetched_message.create_thread(name=name)
+                    thread = await fetched_message.create_thread(name=name)
+                    # Cache the created thread
+                    if thread:
+                        self._thread_creation_cache[message.id] = thread
+                    return thread
                 except (discord.HTTPException, discord.NotFound) as fetch_error:
                     logger.warning(
                         f"Failed to fetch message {message.id} for thread creation: {fetch_error}"
                     )
                     return None
 
-            return await message.create_thread(name=name)
+            thread = await message.create_thread(name=name)
+            # Cache the created thread
+            if thread:
+                self._thread_creation_cache[message.id] = thread
+            return thread
         except ValueError as e:
             if "guild info" in str(e):
                 logger.info(
@@ -215,7 +253,11 @@ class ThreadManager:
                 )
                 try:
                     fetched_message = await self.channel.fetch_message(message.id)
-                    return await fetched_message.create_thread(name=name)
+                    thread = await fetched_message.create_thread(name=name)
+                    # Cache the created thread
+                    if thread:
+                        self._thread_creation_cache[message.id] = thread
+                    return thread
                 except (discord.HTTPException, discord.NotFound) as fetch_error:
                     logger.warning(
                         f"Failed to fetch message {message.id} for thread creation: {fetch_error}"
@@ -224,6 +266,11 @@ class ThreadManager:
             else:
                 logger.error(f"ValueError creating thread from message '{name}': {e}")
                 return None
+        except discord.Forbidden as e:
+            logger.warning(
+                f"Insufficient permissions to create thread from message '{name}': {e}"
+            )
+            return None
         except discord.HTTPException as e:
             # If thread already exists, this should have been caught by get_existing_thread()
             # This is a backup check in case the thread was created between checks
@@ -234,14 +281,13 @@ class ThreadManager:
                 logger.warning(
                     f"Thread race condition detected for message {message.id}, re-checking for existing thread"
                 )
-                return await self.get_existing_thread(message)
+                existing = await self.get_existing_thread(message)
+                # Cache the found thread to prevent future race conditions
+                if existing:
+                    self._thread_creation_cache[message.id] = existing
+                return existing
             logger.warning(
                 f"Failed to create thread from message '{name}': HTTP {e.status} - {e.text}"
-            )
-            return None
-        except discord.Forbidden as e:
-            logger.warning(
-                f"Insufficient permissions to create thread from message '{name}': {e}"
             )
             return None
         except Exception as e:

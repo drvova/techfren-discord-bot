@@ -319,12 +319,8 @@ async def call_llm_api(query, message_context=None):
 
             if scraped_content_parts:
                 scraped_content_text = "\n\n".join(scraped_content_parts)
-                if message_context:
-                    # If we already have message context, add scraped content to it
-                    user_content = f"{scraped_content_text}\n\n{user_content}"
-                else:
-                    # If no message context, add scraped content before the query
-                    user_content = f"{scraped_content_text}\n\n**User's Question/Request:**\n{query}"
+                # Always prepend scraped content before existing user_content
+                user_content = f"{scraped_content_text}\n\n{user_content}"
                 logger.debug(
                     f"Added scraped content to LLM prompt: {len(scraped_content_parts)} URL(s) with content"
                 )

@@ -6,6 +6,11 @@ from llm_handler import call_llm_api
 from message_utils import split_long_message, get_message_context
 import re
 from typing import Optional
+from datetime import datetime, timedelta, timezone
+
+# Cache to track processed mention commands to prevent duplicate processing
+# Key: message_id, Value: timestamp when processed
+_processed_mention_commands = {}
 
 
 async def handle_bot_command(
@@ -14,6 +19,29 @@ async def handle_bot_command(
     bot_client: discord.Client = None,
 ) -> None:
     """Handles the mention command with thread-based replies."""
+
+    # Check if we've already processed this message (prevent duplicates)
+    message_id = str(message.id)
+    now = datetime.now(timezone.utc)
+
+    # Clean up old entries from cache (older than 5 minutes)
+    expired_ids = [
+        msg_id
+        for msg_id, timestamp in _processed_mention_commands.items()
+        if now - timestamp > timedelta(minutes=5)
+    ]
+    for msg_id in expired_ids:
+        del _processed_mention_commands[msg_id]
+
+    # Check if this message was already processed
+    if message_id in _processed_mention_commands:
+        logger.debug(f"Message {message_id} already processed, skipping duplicate")
+        return
+
+    # Mark this message as processed
+    _processed_mention_commands[message_id] = now
+    logger.debug(f"Processing message {message_id} for the first time")
+
     bot_mention = f"<@{client_user.id}>"
     bot_mention_alt = f"<@!{client_user.id}>"
     query = (
@@ -49,29 +77,58 @@ async def handle_bot_command(
         )
         return
 
-    # Create thread from the user's message for the bot response
-    thread_name = f"Bot Response - {message.author.display_name}"
+    # Check if message is already in a thread
+    from command_abstraction import ThreadManager, MessageResponseSender
 
-    try:
-        from command_abstraction import ThreadManager, MessageResponseSender
+    if isinstance(message.channel, discord.Thread):
+        # Message is already in a thread, respond directly in the same thread
+        logger.info(
+            f"Message is already in thread '{message.channel.name}', responding directly"
+        )
+        thread = message.channel
+        thread_sender = MessageResponseSender(thread)
+    else:
+        # Create thread from the user's message for the bot response
+        thread_name = f"Bot Response - {message.author.display_name}"
 
-        thread_manager = ThreadManager(message.channel, message.guild)
+        try:
+            thread_manager = ThreadManager(message.channel, message.guild)
 
-        # Create thread from the user's original message
-        thread = await thread_manager.create_thread_from_message(message, thread_name)
+            # Create thread from the user's original message
+            thread = await thread_manager.create_thread_from_message(
+                message, thread_name
+            )
 
-        if not thread:
-            logger.error("Thread creation failed - cannot respond to command")
+            if not thread:
+                logger.error("Thread creation failed - cannot respond to command")
+                import config
+
+                error_msg = config.ERROR_MESSAGES["processing_error"]
+                await _send_error_response_thread(message, client_user, error_msg)
+                return
+
+            # Send processing message in the thread
+            thread_sender = MessageResponseSender(thread)
+        except Exception as e:
+            logger.error(
+                f"Error creating thread for bot command: {str(e)}", exc_info=True
+            )
             import config
 
             error_msg = config.ERROR_MESSAGES["processing_error"]
             await _send_error_response_thread(message, client_user, error_msg)
             return
 
-        # Send processing message in the thread
-        thread_sender = MessageResponseSender(thread)
+    # Common processing for both thread and non-thread messages
+    try:
+        logger.debug(
+            f"Sending 'Processing your request' message to thread {thread.id if hasattr(thread, 'id') else 'unknown'}"
+        )
         processing_msg = await thread_sender.send(
             "Processing your request, please wait..."
+        )
+        logger.debug(
+            f"'Processing your request' message sent successfully, ID: {processing_msg.id if processing_msg else 'None'}"
         )
 
         try:
