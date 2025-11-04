@@ -36,12 +36,14 @@ async def handle_bot_command(
 
     # Check if this message was already processed
     if message_id in _processed_mention_commands:
-        logger.debug(f"Message {message_id} already processed, skipping duplicate")
+        logger.warning(
+            f"[DUPLICATE] Message {message_id} already processed, skipping duplicate - Previous: {_processed_mention_commands[message_id]}, Now: {now}"
+        )
         return
 
     # Mark this message as processed
     _processed_mention_commands[message_id] = now
-    logger.debug(f"Processing message {message_id} for the first time")
+    logger.info(f"[FLOW] Processing message {message_id} for FIRST time at {now}")
 
     bot_mention = f"<@{client_user.id}>"
     bot_mention_alt = f"<@!{client_user.id}>"
@@ -119,14 +121,14 @@ async def handle_bot_command(
 
     # Common processing for both thread and non-thread messages
     try:
-        logger.debug(
-            f"Sending 'Processing your request' message to thread {thread.id if hasattr(thread, 'id') else 'unknown'}"
+        logger.info(
+            f"[FLOW] About to send 'Processing...' message for msg_id={message_id} to thread {thread.id if hasattr(thread, 'id') else 'unknown'}"
         )
         processing_msg = await thread_sender.send(
             "Processing your request, please wait..."
         )
-        logger.debug(
-            f"'Processing your request' message sent successfully, ID: {processing_msg.id if processing_msg else 'None'}"
+        logger.info(
+            f"[FLOW] 'Processing...' message SENT successfully for msg_id={message_id}, processing_msg_id={processing_msg.id if processing_msg else 'None'}"
         )
 
         try:

@@ -703,8 +703,11 @@ async def on_message(message):
 
     # Process mention commands in any channel
     if is_mention_command:
-        logger.debug(f"Processing mention command in channel #{message.channel.name}")
+        logger.info(
+            f"[FLOW] on_message detected @bot - msg_id={message.id}, author={message.author}, channel={message.channel.name}"
+        )
         await handle_bot_command(message, bot.user, bot)
+        logger.info(f"[FLOW] handle_bot_command COMPLETED for msg_id={message.id}")
         return
 
     # If not a command we recognize, ignore
