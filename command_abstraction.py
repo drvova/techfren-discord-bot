@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Optional, Union, Protocol
 import discord
 import logging
+from thread_manager import ThreadManager
 
 
 @dataclass
@@ -103,199 +104,7 @@ class InteractionResponseSender:
             )
 
 
-class ThreadManager:
-    """Handles thread creation for both message and interaction contexts."""
-
-    # Class-level cache to prevent race conditions
-    _thread_creation_cache = {}
-
-    def __init__(
-        self, channel: discord.TextChannel, guild: Optional[discord.Guild] = None
-    ):
-        self.channel = channel
-        self.guild = guild
-
-    async def get_existing_thread(
-        self, message: discord.Message
-    ) -> Optional[discord.Thread]:
-        """Check if a message already has an associated thread.
-
-        Args:
-            message: The Discord message to check for existing threads
-
-        Returns:
-            The existing thread if found, None otherwise
-        """
-        try:
-            logger = logging.getLogger(__name__)
-
-            # Check if message has a thread attribute (available for messages with threads)
-            logger.debug(
-                f"Checking message.thread for message {message.id}: hasattr={hasattr(message, 'thread')}, value={message.thread if hasattr(message, 'thread') else 'N/A'}"
-            )
-            if hasattr(message, "thread") and message.thread:
-                logger.info(
-                    f"Found existing thread '{message.thread.name}' (ID: {message.thread.id}) for message {message.id}"
-                )
-                return message.thread
-
-            # Fetch active threads - in Discord.py, thread.id == starter_message.id
-            try:
-                active_threads = await self.channel.guild.active_threads()
-                logger.debug(
-                    f"Checking {len(active_threads)} active threads for message {message.id}"
-                )
-                for thread in active_threads:
-                    # Check if thread belongs to this channel and matches message ID
-                    # Discord API: thread.id is the same as the starter message ID
-                    if (
-                        hasattr(thread, "parent_id")
-                        and thread.parent_id == self.channel.id
-                        and thread.id == message.id
-                    ):
-                        logger.info(
-                            f"Found existing thread via active threads search: '{thread.name}' (ID: {thread.id})"
-                        )
-                        return thread
-                logger.debug(
-                    f"No matching thread found in active threads for message {message.id}"
-                )
-            except (AttributeError, discord.HTTPException) as e:
-                logger.debug(f"Could not fetch active threads: {e}")
-
-            return None
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Error checking for existing thread: {e}")
-            return None
-
-    async def create_thread(self, name: str) -> Optional[discord.Thread]:
-        """Create a thread in the channel."""
-        if not self.guild:
-            return None
-
-        try:
-            return await self.channel.create_thread(
-                name=name, type=discord.ChannelType.public_thread
-            )
-        except discord.Forbidden as e:
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Insufficient permissions to create thread '{name}': {e}")
-            return None
-        except discord.HTTPException as e:
-            logger = logging.getLogger(__name__)
-            logger.warning(
-                f"Failed to create thread '{name}': HTTP {e.status} - {e.text}"
-            )
-            return None
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.error(
-                f"Unexpected error creating thread '{name}': {str(e)}", exc_info=True
-            )
-            return None
-
-    async def create_thread_from_message(
-        self, message: discord.Message, name: str
-    ) -> Optional[discord.Thread]:
-        """Create a thread from an existing message, or reuse if one already exists."""
-        if not self.guild:
-            return None
-
-        logger = logging.getLogger(__name__)
-
-        # Check cache first to prevent race conditions
-        if message.id in self._thread_creation_cache:
-            cached_thread = self._thread_creation_cache[message.id]
-            logger.info(
-                f"Returning cached thread '{cached_thread.name}' (ID: {cached_thread.id}) for message {message.id}"
-            )
-            return cached_thread
-
-        # Check if thread already exists for this message
-        existing_thread = await self.get_existing_thread(message)
-        if existing_thread:
-            logger.info(
-                f"Reusing existing thread '{existing_thread.name}' (ID: {existing_thread.id}) for message {message.id}"
-            )
-            # Cache for future calls
-            self._thread_creation_cache[message.id] = existing_thread
-            return existing_thread
-
-        try:
-            # Check if the message has guild info (required for thread creation)
-            if not hasattr(message, "guild") or message.guild is None:
-                logger.info(
-                    f"Message lacks guild info, fetching message with guild info for thread creation: '{name}'"
-                )
-                try:
-                    fetched_message = await self.channel.fetch_message(message.id)
-                    thread = await fetched_message.create_thread(name=name)
-                    # Cache the created thread
-                    if thread:
-                        self._thread_creation_cache[message.id] = thread
-                    return thread
-                except (discord.HTTPException, discord.NotFound) as fetch_error:
-                    logger.warning(
-                        f"Failed to fetch message {message.id} for thread creation: {fetch_error}"
-                    )
-                    return None
-
-            thread = await message.create_thread(name=name)
-            # Cache the created thread
-            if thread:
-                self._thread_creation_cache[message.id] = thread
-            return thread
-        except ValueError as e:
-            if "guild info" in str(e):
-                logger.info(
-                    f"Message lacks guild info, attempting to fetch with proper guild info: {e}"
-                )
-                try:
-                    fetched_message = await self.channel.fetch_message(message.id)
-                    thread = await fetched_message.create_thread(name=name)
-                    # Cache the created thread
-                    if thread:
-                        self._thread_creation_cache[message.id] = thread
-                    return thread
-                except (discord.HTTPException, discord.NotFound) as fetch_error:
-                    logger.warning(
-                        f"Failed to fetch message {message.id} for thread creation: {fetch_error}"
-                    )
-                    return None
-            else:
-                logger.error(f"ValueError creating thread from message '{name}': {e}")
-                return None
-        except discord.Forbidden as e:
-            logger.warning(
-                f"Insufficient permissions to create thread from message '{name}': {e}"
-            )
-            return None
-        except discord.HTTPException as e:
-            # If thread already exists, this should have been caught by get_existing_thread()
-            # This is a backup check in case the thread was created between checks
-            if (
-                e.status == 400
-                and "thread has already been created" in str(e.text).lower()
-            ):
-                logger.warning(
-                    f"Thread race condition detected for message {message.id}, re-checking for existing thread"
-                )
-                existing = await self.get_existing_thread(message)
-                # Cache the found thread to prevent future race conditions
-                if existing:
-                    self._thread_creation_cache[message.id] = existing
-                return existing
-            logger.warning(
-                f"Failed to create thread from message '{name}': HTTP {e.status} - {e.text}"
-            )
-            return None
-        except Exception as e:
-            logger.error(
-                f"Unexpected error creating thread from message '{name}': {str(e)}",
-                exc_info=True,
-            )
-            return None
+# ThreadManager is now imported from thread_manager.py - centralized single source of truth
 
 
 def create_context_from_message(message: discord.Message) -> CommandContext:
@@ -518,62 +327,42 @@ async def handle_summary_command(
         )
         summary_parts = await split_long_message(summary)
 
-        # Send summary efficiently with thread creation
+        # Send summary efficiently with thread creation (centralized single source of truth)
         if context.guild_id:
             # For guild channels: Create thread and put summary content in it
             thread_name = f"Summary - {channel_name_str} - {today.strftime('%Y-%m-%d')}"
 
-            if initial_message:
-                try:
-                    # Create thread from the initial message (will fetch with guild info if needed)
-                    thread = await thread_manager.create_thread_from_message(
-                        initial_message, thread_name
-                    )
+            # Use centralized ensure_thread method - single source of truth
+            thread = await thread_manager.ensure_thread(thread_name, initial_message)
 
-                    if thread:
-                        # Send all summary content in the thread
-                        thread_sender = MessageResponseSender(thread)
-                        await thread_sender.send_in_parts(summary_parts)
+            if thread:
+                # Send all summary content in the thread
+                thread_sender = MessageResponseSender(thread)
+                await thread_sender.send_in_parts(summary_parts)
 
-                        # Edit the initial message to just indicate the summary is in the thread
+                # Edit initial message if it exists
+                if initial_message:
+                    try:
                         await initial_message.edit(
                             content=f"📊 **Summary of #{channel_name_str} for the past {hours} hour{'s' if hours != 1 else ''}**"
                         )
-                    else:
-                        # Fallback: if thread creation failed, send summary in main channel
-                        logger.warning(
-                            "Thread creation failed, sending summary in main channel"
-                        )
-                        await initial_message.edit(
-                            content=f"📊 **Summary of #{channel_name_str} for the past {hours} hour{'s' if hours != 1 else ''}**"
-                        )
-                        await response_sender.send_in_parts(summary_parts)
-
-                except discord.HTTPException as e:
-                    logger.warning(f"Failed to edit initial message: {e}")
-                    # Fallback: send summary in thread as before
-                    thread = await thread_manager.create_thread(thread_name)
-                    if thread:
-                        thread_sender = MessageResponseSender(thread)
-                        await thread_sender.send_in_parts(summary_parts)
-                        await response_sender.send(
-                            f"Summary posted in thread: {thread.mention}"
-                        )
-                    else:
-                        # Ultimate fallback: send summary parts directly
-                        await response_sender.send_in_parts(summary_parts)
-            else:
-                # No initial message, create thread and send summary
-                thread = await thread_manager.create_thread(thread_name)
-                if thread:
-                    thread_sender = MessageResponseSender(thread)
-                    await thread_sender.send_in_parts(summary_parts)
+                    except discord.HTTPException as e:
+                        logger.warning(f"Failed to edit initial message: {e}")
+                else:
+                    # No initial message, notify about thread
                     await response_sender.send(
                         f"📊 Summary generated - see thread: {thread.mention}"
                     )
-                else:
-                    # Fallback: send summary parts directly
-                    await response_sender.send_in_parts(summary_parts)
+            else:
+                # Fallback: if thread creation failed, send summary in main channel
+                logger.warning(
+                    "Thread creation failed, sending summary in main channel"
+                )
+                if initial_message:
+                    await initial_message.edit(
+                        content=f"📊 **Summary of #{channel_name_str} for the past {hours} hour{'s' if hours != 1 else ''}**"
+                    )
+                await response_sender.send_in_parts(summary_parts)
         else:
             # For DMs: send summary parts directly
             await response_sender.send_in_parts(summary_parts)

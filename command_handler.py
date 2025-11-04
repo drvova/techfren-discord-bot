@@ -4,6 +4,7 @@ from logging_config import logger
 from rate_limiter import check_rate_limit
 from llm_handler import call_llm_api
 from message_utils import split_long_message, get_message_context
+from thread_manager import ThreadManager
 import re
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -78,7 +79,7 @@ async def handle_bot_command(
         return
 
     # Check if message is already in a thread
-    from command_abstraction import ThreadManager, MessageResponseSender
+    from command_abstraction import MessageResponseSender
 
     if isinstance(message.channel, discord.Thread):
         # Message is already in a thread, respond directly in the same thread
@@ -92,12 +93,9 @@ async def handle_bot_command(
         thread_name = f"Bot Response - {message.author.display_name}"
 
         try:
+            # Use centralized ThreadManager - single source of truth
             thread_manager = ThreadManager(message.channel, message.guild)
-
-            # Create thread from the user's original message
-            thread = await thread_manager.create_thread_from_message(
-                message, thread_name
-            )
+            thread = await thread_manager.ensure_thread(thread_name, message)
 
             if not thread:
                 logger.error("Thread creation failed - cannot respond to command")
@@ -200,13 +198,14 @@ async def _send_error_response_thread(
 ) -> None:
     """Send error response in a thread attached to the user's message."""
     try:
-        from command_abstraction import ThreadManager, MessageResponseSender
+        from command_abstraction import MessageResponseSender
 
+        # Use centralized ThreadManager - single source of truth
         thread_manager = ThreadManager(message.channel, message.guild)
         thread_name = f"Bot Response - {message.author.display_name}"
 
-        # Try to create thread from the user's message
-        thread = await thread_manager.create_thread_from_message(message, thread_name)
+        # Use ensure_thread method - centralized logic
+        thread = await thread_manager.ensure_thread(thread_name, message)
 
         if thread:
             thread_sender = MessageResponseSender(thread)
